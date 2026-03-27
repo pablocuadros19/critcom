@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+env/
+
+# Base de datos local
+*.db
+*.sqlite3
+
+# Assets con datos reales (no subir al repo)
+asset/Listado_completo.csv
+asset/Informe_Roles*.xlsb
+asset/Reporte_Comparacion*.xlsx
+asset/A44740.pdf
+asset/Manual_SGI*.pdf
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

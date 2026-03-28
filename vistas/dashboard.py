@@ -141,6 +141,37 @@ def _badge_perdido(flag_key):
     return f'<span class="badge-perdido">- {nombre}</span>'
 
 
+def _match_rol_name(a, b):
+    """True si dos nombres de rol se refieren a la misma persona (partial match por tokens)."""
+    stopwords = {"DE", "DEL", "LA", "LOS", "LAS", "EL", "Y", "SAN", "SANTA"}
+    ta = set(a.upper().split()) - stopwords
+    tb = set(b.upper().split()) - stopwords
+    return len(ta & tb) >= 2
+
+
+def _find_rol_row(df_info_rol, selected):
+    """Devuelve la fila de df_info_rol que corresponde al ejecutivo, con partial match."""
+    if df_info_rol is None or df_info_rol.empty:
+        return None
+    exact = df_info_rol[df_info_rol["nombre_rol"].str.upper() == selected.upper()]
+    if not exact.empty:
+        return exact.iloc[0]
+    for _, row in df_info_rol.iterrows():
+        if _match_rol_name(str(row.get("nombre_rol", "")), selected):
+            return row
+    return None
+
+
+def _es_empresas(tipo_rol):
+    t = tipo_rol.upper()
+    return "EMPRESA" in t or "PYM" in t
+
+
+def _es_nyp(tipo_rol):
+    t = tipo_rol.upper()
+    return "NYP" in t or "NyP".upper() in t or "NEGOCIO" in t or "PERSONA" in t
+
+
 # ── Navegación auxiliar ─────────────────────────────────────────────────
 def _nav_buttons():
     """Botones de navegación horizontal."""
@@ -161,6 +192,21 @@ def _nav_buttons():
 _inject_css()
 
 df = st.session_state.get("df_comparacion")
+if df is None or df.empty:
+    # Intentar restaurar última sesión desde pickle
+    import pickle, os
+    _pkl = "data/last_session.pkl"
+    if os.path.exists(_pkl):
+        try:
+            with open(_pkl, "rb") as _f:
+                _s = pickle.load(_f)
+            for _k, _v in _s.items():
+                if st.session_state.get(_k) is None:
+                    st.session_state[_k] = _v
+            df = st.session_state.get("df_comparacion")
+        except Exception:
+            pass
+
 if df is None or df.empty:
     st.info("No hay datos cargados. Cargá archivos desde la página de inicio.")
     if st.button("Ir a Inicio", type="primary"):
@@ -183,37 +229,53 @@ st.markdown(f"""
 # ── Cards de ejecutivos (solo los de ROLES_VB) ─────────────────────────
 opciones_roles = list(ROLES_VB.keys()) + ["SIN ASIGNAR"]
 
-# Selector con cards
-cards_html = '<div class="role-cards">'
-for rol in opciones_roles:
-    active = "active" if st.session_state.get("selected_role") == rol else ""
-    info_rol = ROLES_VB.get(rol, {})
-    foto_path = info_rol.get("foto", "")
-    b64 = _img_to_base64(foto_path) if foto_path else None
+if st.session_state.get("selected_role") not in opciones_roles:
+    st.session_state["selected_role"] = opciones_roles[0]
 
-    if b64:
-        ext = foto_path.rsplit(".", 1)[-1].lower()
-        mime = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png"
-        avatar = f'<img src="data:{mime};base64,{b64}" alt="{rol}">'
-    else:
-        avatar = f'<div class="initials">{_get_initials(rol)}</div>'
+cols_cards = st.columns(len(opciones_roles))
+for i, rol in enumerate(opciones_roles):
+    with cols_cards[i]:
+        info_rol = ROLES_VB.get(rol, {})
+        foto_path = info_rol.get("foto", "")
+        is_active = st.session_state["selected_role"] == rol
+        border_color = "#00A651" if is_active else "#e0e5ec"
+        bg_color = "#f0f9f4" if is_active else "#f7f9fc"
 
-    display_name = rol.title() if rol != "SIN ASIGNAR" else "Sin Asignar"
-    cards_html += f'<div class="role-card {active}">{avatar}<div class="name">{display_name}</div></div>'
+        # Avatar: foto o iniciales
+        b64 = _img_to_base64(foto_path) if foto_path else None
+        if b64:
+            ext = foto_path.rsplit(".", 1)[-1].lower()
+            mime = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png"
+            avatar_html = (
+                f'<img src="data:{mime};base64,{b64}" '
+                f'style="width:64px;height:64px;border-radius:50%;object-fit:cover;'
+                f'border:3px solid {border_color};display:block;margin:0 auto 6px auto">'
+            )
+        else:
+            initials = _get_initials(rol)
+            avatar_html = (
+                f'<div style="width:64px;height:64px;border-radius:50%;background:#00A651;'
+                f'display:flex;align-items:center;justify-content:center;'
+                f'color:white;font-size:1.3rem;font-weight:700;margin:0 auto 6px auto;'
+                f'font-family:Montserrat,sans-serif">{initials}</div>'
+            )
 
-cards_html += '</div>'
-st.markdown(cards_html, unsafe_allow_html=True)
+        display_name = rol.title() if rol != "SIN ASIGNAR" else "Sin Asignar"
+        st.markdown(
+            f'<div style="text-align:center;background:{bg_color};border:2px solid {border_color};'
+            f'border-radius:14px;padding:10px 4px 6px 4px">'
+            f'{avatar_html}'
+            f'<div style="font-family:Montserrat,sans-serif;font-size:0.72rem;font-weight:700;'
+            f'color:#1a1a2e;word-break:break-word">{display_name}</div></div>',
+            unsafe_allow_html=True,
+        )
+        # Botón invisible pero funcional debajo del avatar
+        if st.button("✓" if is_active else "Elegir", key=f"btn_rol_{rol}",
+                      use_container_width=True, type="primary" if is_active else "secondary"):
+            st.session_state["selected_role"] = rol
+            st.rerun()
 
-# Selector funcional (streamlit necesita un widget real para interactividad)
-selected = st.selectbox(
-    "Seleccionar ejecutivo",
-    opciones_roles,
-    index=opciones_roles.index(st.session_state.get("selected_role", opciones_roles[0]))
-        if st.session_state.get("selected_role") in opciones_roles else 0,
-    key="role_select",
-    label_visibility="collapsed",
-)
-st.session_state["selected_role"] = selected
+selected = st.session_state["selected_role"]
 
 # ── Filtrar datos ───────────────────────────────────────────────────────
 if selected == "SIN ASIGNAR":
@@ -271,25 +333,37 @@ df_cartera = st.session_state.get("df_cartera")
 df_info_rol = st.session_state.get("df_info_rol")
 promedios = st.session_state.get("promedios_pilar", {})
 
+# DEBUG — sacar una vez confirmado
+with st.expander("🔍 Debug INFO_ROL", expanded=False):
+    st.write("**promedios_pilar:**", promedios)
+    st.write("**df_info_rol:**", df_info_rol)
+    rol_row_debug = _find_rol_row(df_info_rol, selected)
+    st.write(f"**row encontrado para '{selected}':**", rol_row_debug)
+
 # Calcular índice CritCom
 indice_data = None
 if df_cartera is not None and not df_cartera.empty and "nombre_rol" in df_cartera.columns:
     df_cartera_rol = df_cartera[df_cartera["nombre_rol"] == selected]
     indice_data = calcular_indice_desarrollo(df_cartera_rol, df)
 
-# Índice base del INFO_ROL
+# Índice base del INFO_ROL (con partial match de nombre)
 indice_base = None
-if df_info_rol is not None and not df_info_rol.empty:
-    rol_info = df_info_rol[df_info_rol["nombre_rol"].str.upper() == selected.upper()]
-    if not rol_info.empty:
-        indice_base = rol_info.iloc[0].get("indic_desarr")
+tipo_rol_sel = None
+rol_row = _find_rol_row(df_info_rol, selected)
+if rol_row is not None:
+    indice_base = rol_row.get("indic_desarr")
+    tipo_rol_sel = str(rol_row.get("tipo_rol", "")).strip()
+
+# Fallback tipo_rol desde cartera si no lo encontramos en df_info_rol
+if not tipo_rol_sel and df_cartera is not None and "tipo_rol" in df_cartera.columns:
+    cart_rol = df_cartera[df_cartera["nombre_rol"] == selected]
+    if not cart_rol.empty:
+        tipo_rol_sel = str(cart_rol.iloc[0].get("tipo_rol", "")).strip()
 
 if indice_data or indice_base is not None:
     st.markdown('<div class="dash-divider"></div>', unsafe_allow_html=True)
 
     indice_calc = indice_data["indice"] if indice_data else 0
-    delta_idx = None
-    delta_class = ""
     delta_text = ""
     if indice_base is not None and indice_data:
         delta_idx = indice_calc - float(indice_base)
@@ -297,28 +371,17 @@ if indice_data or indice_base is not None:
         arrow = "+" if delta_idx >= 0 else ""
         delta_text = f'<span class="delta {delta_class}">{arrow}{delta_idx:.3f}</span>'
 
-    # Detectar tipo_rol del ejecutivo seleccionado
-    tipo_rol_sel = None
-    if df_info_rol is not None and not df_info_rol.empty:
-        rol_info_tipo = df_info_rol[df_info_rol["nombre_rol"].str.upper() == selected.upper()]
-        if not rol_info_tipo.empty and "tipo_rol" in rol_info_tipo.columns:
-            tipo_rol_sel = str(rol_info_tipo.iloc[0].get("tipo_rol", "")).strip().upper()
-    # Fallback: buscar en cartera
-    if not tipo_rol_sel and df_cartera is not None and "tipo_rol" in df_cartera.columns:
-        cart_rol = df_cartera[df_cartera["nombre_rol"] == selected]
-        if not cart_rol.empty:
-            tipo_rol_sel = str(cart_rol.iloc[0].get("tipo_rol", "")).strip().upper()
-
     # Mostrar solo el pilar que corresponde al rol
     dev_emp = promedios.get("dev_empresas")
     dev_nyp = promedios.get("dev_nyp")
+
     pilar_html = ""
-    if tipo_rol_sel and "EMPRESA" in tipo_rol_sel and dev_emp is not None:
+    if tipo_rol_sel and _es_empresas(tipo_rol_sel) and dev_emp is not None:
         pilar_html = f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'
-    elif tipo_rol_sel and "NYP" in tipo_rol_sel and dev_nyp is not None:
+    elif tipo_rol_sel and _es_nyp(tipo_rol_sel) and dev_nyp is not None:
         pilar_html = f'<div class="indice-card"><div class="label">Pilar NyP (sucursal)</div><div class="val">{dev_nyp:.2f}</div></div>'
-    else:
-        # Si no se puede determinar, mostrar ambos
+    elif dev_emp is not None or dev_nyp is not None:
+        # tipo_rol desconocido — mostrar el que haya
         if dev_emp is not None:
             pilar_html += f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'
         if dev_nyp is not None:

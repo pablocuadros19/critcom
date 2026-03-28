@@ -151,53 +151,49 @@ def parsear_info_rol(uploaded_file, sucursal=None):
     if len(col_names) > 20:
         col_map["indic_desarr"] = col_names[20]
 
-    # Extraer promedios de sucursal (filas 0-1, que son filas 3-4 del Excel)
-    promedios = {"tam_empresas": None, "tam_nyp": None,
-                 "dev_empresas": None, "dev_nyp": None}
-    try:
-        # Filas de promedios: las primeras 2 filas de datos suelen ser promedios
-        for i in range(min(2, len(df))):
-            row = df.iloc[i]
-            tipo = str(row.get(col_map.get("tipo_rol", ""), "")).strip().upper()
-            clientes_val = pd.to_numeric(row.get(col_map.get("clientes", ""), None), errors="coerce")
-            indic_val = pd.to_numeric(row.get(col_map.get("indic_desarr", ""), None), errors="coerce")
+    import re
 
-            if "EMPRESA" in tipo:
-                promedios["tam_empresas"] = clientes_val
-                promedios["dev_empresas"] = indic_val
-            elif "NYP" in tipo or "NYP" in tipo:
-                promedios["tam_nyp"] = clientes_val
-                promedios["dev_nyp"] = indic_val
-    except Exception as e:
-        logger.warning(f"No se pudieron extraer promedios de pilar: {e}")
-
-    # Datos de roles individuales (desde fila 2 en adelante)
-    df_roles = df.iloc[2:].copy()
-
-    # Renombrar columnas
+    # Renombrar columnas y tomar todos los datos
     rename = {v: k for k, v in col_map.items()}
-    df_roles = df_roles.rename(columns=rename)
+    df_roles = df.rename(columns=rename).copy()
 
-    # Filtrar por sucursal si se especifica
-    if sucursal and "sucursal" in df_roles.columns:
-        df_roles = df_roles[df_roles["sucursal"].astype(str).str.contains(str(sucursal), case=False, na=False)]
-
-    # Limpiar y convertir tipos
+    # Limpiar tipos
     for col in ["clientes", "indic_desarr"]:
         if col in df_roles.columns:
             df_roles[col] = pd.to_numeric(df_roles[col], errors="coerce")
-
     if "nombre_rol" in df_roles.columns:
         df_roles["nombre_rol"] = df_roles["nombre_rol"].astype(str).str.strip()
         df_roles = df_roles[df_roles["nombre_rol"].notna() & (df_roles["nombre_rol"] != "") & (df_roles["nombre_rol"] != "nan")]
-
     if "tipo_rol" in df_roles.columns:
         df_roles["tipo_rol"] = df_roles["tipo_rol"].astype(str).str.strip()
+
+    # Filtrar por sucursal: quitar dígitos al final para obtener ciudad
+    # "Villa Ballester 5155" → "Villa Ballester" → matchea "Villa Ballester" en el archivo
+    if sucursal and "sucursal" in df_roles.columns:
+        ciudad = re.sub(r'\s*\d+\s*$', '', str(sucursal)).strip()
+        df_suc = df_roles[df_roles["sucursal"].astype(str).str.contains(ciudad, case=False, na=False)]
+        df_roles = df_suc if not df_suc.empty else df_roles
 
     cols_final = [c for c in ["nombre_rol", "tipo_rol", "sucursal", "fecha_inicio", "clientes", "indic_desarr"] if c in df_roles.columns]
     df_roles = df_roles[cols_final].reset_index(drop=True)
 
-    logger.info(f"INFO_ROL parseado: {len(df_roles)} roles")
+    # Calcular promedios por pilar desde los datos individuales
+    promedios = {"tam_empresas": None, "tam_nyp": None, "dev_empresas": None, "dev_nyp": None}
+    try:
+        if "tipo_rol" in df_roles.columns and "indic_desarr" in df_roles.columns:
+            tipos_up = df_roles["tipo_rol"].str.upper()
+            df_emp = df_roles[tipos_up.str.contains("EMPRESA|PYM", na=False, regex=True)]
+            df_nyp = df_roles[tipos_up.str.contains("NYP|NEGOCIO|PERSONA", na=False, regex=True)]
+            if not df_emp.empty:
+                promedios["dev_empresas"] = round(float(df_emp["indic_desarr"].mean(skipna=True)), 4)
+                promedios["tam_empresas"] = len(df_emp)
+            if not df_nyp.empty:
+                promedios["dev_nyp"] = round(float(df_nyp["indic_desarr"].mean(skipna=True)), 4)
+                promedios["tam_nyp"] = len(df_nyp)
+    except Exception as e:
+        logger.warning(f"No se pudieron calcular promedios de pilar: {e}")
+
+    logger.info(f"INFO_ROL parseado: {len(df_roles)} roles — promedios: {promedios}")
     return {"promedios": promedios, "roles": df_roles}
 
 

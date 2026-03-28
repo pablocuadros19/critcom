@@ -184,6 +184,20 @@ def _procesar(archivo_recip, archivo_roles, sucursal):
         if len(ubs) > 0:
             st.session_state["sucursal_filtro"] = str(ubs[0])
 
+    # Persistir sesión para recargas sin re-upload
+    import pickle, os
+    _session_data = {
+        "df_comparacion": df_comp,
+        "df_cartera": st.session_state.get("df_cartera"),
+        "df_info_rol": st.session_state.get("df_info_rol"),
+        "promedios_pilar": st.session_state.get("promedios_pilar"),
+        "sucursal_filtro": st.session_state.get("sucursal_filtro"),
+        "snapshot_id": snapshot_id,
+    }
+    os.makedirs("data", exist_ok=True)
+    with open("data/last_session.pkl", "wb") as _f:
+        pickle.dump(_session_data, _f)
+
     # Mínimo 5 segundos de perrito
     transcurrido = time.time() - inicio
     if transcurrido < 5:
@@ -215,16 +229,6 @@ except Exception:
     pass
 
 st.markdown('<div class="landing-divider"></div>', unsafe_allow_html=True)
-
-# Info del último snapshot
-ultimo = db.obtener_ultimo_snapshot()
-if ultimo:
-    st.info(
-        f"Último snapshot: #{ultimo['id']} | "
-        f"{ultimo.get('ubicacion_comercial', 'N/D')} | "
-        f"{ultimo.get('total_registros', 0)} clientes | "
-        f"Fecha proceso: {ultimo.get('fecha_proceso', 'N/D')}"
-    )
 
 # ── Sucursal ────────────────────────────────────────────────────────────
 sucursales_guardadas = []
@@ -281,6 +285,28 @@ st.markdown("---")
 puede_procesar = archivo_recip is not None
 if st.button("Procesar", type="primary", use_container_width=True, disabled=not puede_procesar):
     _procesar(archivo_recip, archivo_roles, sucursal)
+
+# Botón para ver el último análisis guardado
+import pickle as _pickle, os as _os
+_pkl_path = "data/last_session.pkl"
+if _os.path.exists(_pkl_path):
+    try:
+        _mtime = _os.path.getmtime(_pkl_path)
+        from datetime import datetime as _dt
+        _fecha_pkl = _dt.fromtimestamp(_mtime).strftime("%d/%m/%Y %H:%M")
+        st.markdown("")
+        if st.button(
+            f"Ver último análisis  —  {_fecha_pkl}",
+            use_container_width=True,
+            key="btn_ultimo_analisis",
+        ):
+            with open(_pkl_path, "rb") as _f:
+                _s = _pickle.load(_f)
+            for _k, _v in _s.items():
+                st.session_state[_k] = _v
+            st.switch_page("vistas/dashboard.py")
+    except Exception:
+        pass
 
 # Firma
 st.markdown("---")

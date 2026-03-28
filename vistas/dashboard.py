@@ -297,14 +297,32 @@ if indice_data or indice_base is not None:
         arrow = "+" if delta_idx >= 0 else ""
         delta_text = f'<span class="delta {delta_class}">{arrow}{delta_idx:.3f}</span>'
 
-    # Promedios de pilar
+    # Detectar tipo_rol del ejecutivo seleccionado
+    tipo_rol_sel = None
+    if df_info_rol is not None and not df_info_rol.empty:
+        rol_info_tipo = df_info_rol[df_info_rol["nombre_rol"].str.upper() == selected.upper()]
+        if not rol_info_tipo.empty and "tipo_rol" in rol_info_tipo.columns:
+            tipo_rol_sel = str(rol_info_tipo.iloc[0].get("tipo_rol", "")).strip().upper()
+    # Fallback: buscar en cartera
+    if not tipo_rol_sel and df_cartera is not None and "tipo_rol" in df_cartera.columns:
+        cart_rol = df_cartera[df_cartera["nombre_rol"] == selected]
+        if not cart_rol.empty:
+            tipo_rol_sel = str(cart_rol.iloc[0].get("tipo_rol", "")).strip().upper()
+
+    # Mostrar solo el pilar que corresponde al rol
     dev_emp = promedios.get("dev_empresas")
     dev_nyp = promedios.get("dev_nyp")
     pilar_html = ""
-    if dev_emp is not None:
-        pilar_html += f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'
-    if dev_nyp is not None:
-        pilar_html += f'<div class="indice-card"><div class="label">Pilar NyP (sucursal)</div><div class="val">{dev_nyp:.2f}</div></div>'
+    if tipo_rol_sel and "EMPRESA" in tipo_rol_sel and dev_emp is not None:
+        pilar_html = f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'
+    elif tipo_rol_sel and "NYP" in tipo_rol_sel and dev_nyp is not None:
+        pilar_html = f'<div class="indice-card"><div class="label">Pilar NyP (sucursal)</div><div class="val">{dev_nyp:.2f}</div></div>'
+    else:
+        # Si no se puede determinar, mostrar ambos
+        if dev_emp is not None:
+            pilar_html += f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'
+        if dev_nyp is not None:
+            pilar_html += f'<div class="indice-card"><div class="label">Pilar NyP (sucursal)</div><div class="val">{dev_nyp:.2f}</div></div>'
 
     idx_base_str = f"{float(indice_base):.3f}" if indice_base is not None else "N/D"
     idx_calc_str = f"{indice_calc:.3f}" if indice_data else "N/D"
@@ -338,49 +356,28 @@ if not df_cambios.empty:
         lambda x: puntos_reciprocidad(int(x or 0)))
     df_cambios = df_cambios.sort_values(["_orden", "_puntos"], ascending=[True, False])
 
-    # Tabla con badges
-    rows_html = []
-    for _, row in df_cambios.iterrows():
-        nombre = row.get("nom_cliente", "")
-        estado = row.get("estado", "")
-        crit_act = int(row.get("total_flags_actual", 0))
+    # Preparar columnas legibles de ganados/perdidos
+    def _flags_a_nombres(texto):
+        if not isinstance(texto, str) or not texto.strip():
+            return ""
+        nombres = [CRITERIOS[f.strip()]["nombre"] for f in texto.split(",")
+                    if f.strip() in CRITERIOS]
+        return ", ".join(nombres)
 
-        # Badges de ganados/perdidos
-        ganados_str = str(row.get("flags_ganados", ""))
-        perdidos_str = str(row.get("flags_perdidos", ""))
-        badges_g = " ".join([_badge_ganado(f.strip()) for f in ganados_str.split(",") if f.strip() and f.strip() in CRITERIOS])
-        badges_p = " ".join([_badge_perdido(f.strip()) for f in perdidos_str.split(",") if f.strip() and f.strip() in CRITERIOS])
+    df_cambios["Gano"] = df_cambios["flags_ganados"].apply(_flags_a_nombres)
+    df_cambios["Perdio"] = df_cambios["flags_perdidos"].apply(_flags_a_nombres)
+    estado_display = {"MEJORO": "Mejoro", "EMPEORO": "Empeoro", "NUEVO": "Nuevo",
+                      "CAMBIO_LATERAL": "Cambio lat.", "SIN_CAMBIOS": "Sin cambios"}
+    df_cambios["Estado"] = df_cambios["estado"].map(estado_display)
 
-        # Color de fila según estado
-        color_map = {"MEJORO": "#f0f9f4", "EMPEORO": "#fce4ec", "NUEVO": "#e3f2fd", "CAMBIO_LATERAL": "#fff8e1"}
-        bg = color_map.get(estado, "#fff")
-        estado_display = {"MEJORO": "Mejoro", "EMPEORO": "Empeoro", "NUEVO": "Nuevo", "CAMBIO_LATERAL": "Cambio lat."}.get(estado, estado)
-
-        rows_html.append(f"""
-        <tr style="background:{bg}">
-            <td style="padding:6px 8px;font-weight:600;font-size:0.85rem">{nombre}</td>
-            <td style="padding:6px 8px;text-align:center;font-size:0.8rem">{estado_display}</td>
-            <td style="padding:6px 8px;text-align:center;font-weight:700">{crit_act}/15</td>
-            <td style="padding:6px 8px">{badges_g}</td>
-            <td style="padding:6px 8px">{badges_p}</td>
-        </tr>
-        """)
-
-    table_html = f"""
-    <table style="width:100%;border-collapse:collapse;border-radius:10px;overflow:hidden;border:1px solid #e0e5ec;font-family:'Montserrat',sans-serif">
-        <thead>
-            <tr style="background:#00A651;color:white">
-                <th style="padding:8px 10px;text-align:left;font-size:0.8rem">Cliente</th>
-                <th style="padding:8px 10px;text-align:center;font-size:0.8rem">Estado</th>
-                <th style="padding:8px 10px;text-align:center;font-size:0.8rem">Crit.</th>
-                <th style="padding:8px 10px;text-align:left;font-size:0.8rem">Gano</th>
-                <th style="padding:8px 10px;text-align:left;font-size:0.8rem">Perdio</th>
-            </tr>
-        </thead>
-        <tbody>{"".join(rows_html)}</tbody>
-    </table>
-    """
-    st.markdown(table_html, unsafe_allow_html=True)
+    cols_show = ["nom_cliente", "Estado", "total_flags_actual", "Gano", "Perdio"]
+    cols_disp = [c for c in cols_show if c in df_cambios.columns]
+    st.dataframe(
+        df_cambios[cols_disp].rename(columns={
+            "nom_cliente": "Cliente", "total_flags_actual": "Crit.",
+        }),
+        use_container_width=True, hide_index=True,
+    )
 else:
     st.info("Sin cambios en esta cartera.")
 

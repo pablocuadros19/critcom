@@ -125,7 +125,8 @@ def exportar_excel(df, nombre_hoja="Comparación"):
     return output.getvalue()
 
 
-def exportar_pdf(df, titulo="Reporte de Criterios Comerciales", indices_rol=None):
+def exportar_pdf(df, titulo="Reporte de Criterios Comerciales", indices_rol=None,
+                 promedios_pilar=None, promedios_banco=None):
     """
     indices_rol: dict {nombre_rol: indice_float} para sección sugerencia liberar.
     """
@@ -470,7 +471,71 @@ def exportar_pdf(df, titulo="Reporte de Criterios Comerciales", indices_rol=None
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]))
             elementos.append(t_rol)
-            elementos.append(Spacer(1, 4*mm))
+            elementos.append(Spacer(1, 3*mm))
+
+            # Benchmark de desarrollo (índice + clientes vs sucursal y banco)
+            if indices_rol or promedios_pilar or promedios_banco:
+                tipo_rol_pdf = ""
+                if "tipo_rol" in df_rol.columns:
+                    tipo_rol_pdf = str(df_rol["tipo_rol"].dropna().iloc[0]).strip().upper() if not df_rol["tipo_rol"].dropna().empty else ""
+
+                es_emp_pdf = "EMPRESA" in tipo_rol_pdf or "PYM" in tipo_rol_pdf
+                es_nyp_pdf = "NYP" in tipo_rol_pdf or "NEGOCIO" in tipo_rol_pdf or "PERSONA" in tipo_rol_pdf
+                pilar_key_dev = "dev_empresas" if es_emp_pdf else ("dev_nyp" if es_nyp_pdf else None)
+                pilar_key_tam = "tam_empresas" if es_emp_pdf else ("tam_nyp" if es_nyp_pdf else None)
+                pilar_label = "Empresas" if es_emp_pdf else ("NyP" if es_nyp_pdf else "")
+
+                indice_calc = indices_rol.get(rol) if indices_rol else None
+                prom_suc_dev = (promedios_pilar or {}).get(pilar_key_dev) if pilar_key_dev else None
+                prom_bco_dev = (promedios_banco or {}).get(pilar_key_dev) if pilar_key_dev else None
+                prom_bco_tam = (promedios_banco or {}).get(pilar_key_tam) if pilar_key_tam else None
+                clientes_rol_n = len(df_rol)
+
+                def _fmt(v, decimals=3):
+                    return f"{v:.{decimals}f}" if v is not None else "—"
+
+                def _diff(a, b, decimals=2):
+                    if a is None or b is None:
+                        return "—"
+                    d = float(a) - float(b)
+                    return f"{'↑ +' if d >= 0 else '↓ '}{d:.{decimals}f}"
+
+                bench_data = [
+                    [f"Benchmark {pilar_label}", "Tu índice", f"Promedio sucursal", "Promedio banco"],
+                    ["Índice desarrollo",
+                     _fmt(indice_calc),
+                     _fmt(prom_suc_dev),
+                     _fmt(prom_bco_dev)],
+                    ["Desvío vs banco",
+                     "—",
+                     _diff(prom_suc_dev, prom_bco_dev),
+                     "—"],
+                    ["Clientes en cartera",
+                     str(clientes_rol_n),
+                     "—",
+                     _fmt(prom_bco_tam, 0) if prom_bco_tam else "—"],
+                    ["Desvío clientes vs banco",
+                     _diff(clientes_rol_n, prom_bco_tam, 0),
+                     "—",
+                     "—"],
+                ]
+                t_bench = Table(bench_data, colWidths=[5*cm, 4*cm, 5*cm, 4.5*cm])
+                t_bench.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), verde_bp),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                    ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, gris_claro]),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("LEFTPADDING", (0, 0), (0, -1), 4),
+                ]))
+                elementos.append(t_bench)
+                elementos.append(Spacer(1, 4*mm))
 
             # Tabla de clientes del ejecutivo (ordenada por puntos desc)
             df_rol_activos = df_rol[df_rol["estado"] != "DESAPARECIDO"]

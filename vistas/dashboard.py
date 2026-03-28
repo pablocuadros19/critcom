@@ -332,13 +332,7 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 df_cartera = st.session_state.get("df_cartera")
 df_info_rol = st.session_state.get("df_info_rol")
 promedios = st.session_state.get("promedios_pilar", {})
-
-# DEBUG — sacar una vez confirmado
-with st.expander("🔍 Debug INFO_ROL", expanded=False):
-    st.write("**promedios_pilar:**", promedios)
-    st.write("**df_info_rol:**", df_info_rol)
-    rol_row_debug = _find_rol_row(df_info_rol, selected)
-    st.write(f"**row encontrado para '{selected}':**", rol_row_debug)
+promedios_banco = st.session_state.get("promedios_banco", {})
 
 # Calcular índice CritCom
 indice_data = None
@@ -376,12 +370,44 @@ if indice_data or indice_base is not None:
     dev_nyp = promedios.get("dev_nyp")
 
     pilar_html = ""
-    if tipo_rol_sel and _es_empresas(tipo_rol_sel) and dev_emp is not None:
+    banco_html = ""
+
+    es_emp = tipo_rol_sel and _es_empresas(tipo_rol_sel)
+    es_nyp = tipo_rol_sel and _es_nyp(tipo_rol_sel)
+
+    if es_emp and dev_emp is not None:
         pilar_html = f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'
-    elif tipo_rol_sel and _es_nyp(tipo_rol_sel) and dev_nyp is not None:
+        banco_val = promedios_banco.get("dev_empresas")
+        tam_banco = promedios_banco.get("tam_empresas")
+        if banco_val is not None:
+            dev_diff = (dev_emp - banco_val) if dev_emp else None
+            diff_str = (f'<span class="delta {"delta-up" if dev_diff >= 0 else "delta-down"}">'
+                        f'{"+" if dev_diff >= 0 else ""}{dev_diff:.2f} vs banco</span>') if dev_diff is not None else ""
+            banco_html += f'<div class="indice-card"><div class="label">Prom. Banco Empresas</div><div class="val">{banco_val:.2f}</div>{diff_str}</div>'
+        if tam_banco is not None:
+            rol_row_c = _find_rol_row(df_info_rol, selected)
+            clientes_rol = int(rol_row_c.get("clientes", 0)) if rol_row_c is not None else None
+            if clientes_rol is not None:
+                c_diff = clientes_rol - int(tam_banco)
+                c_diff_str = f'<span class="delta {"delta-up" if c_diff >= 0 else "delta-down"}">{"+" if c_diff >= 0 else ""}{c_diff} vs banco</span>'
+                banco_html += f'<div class="indice-card"><div class="label">Clientes vs banco (avg {int(tam_banco)})</div><div class="val">{clientes_rol}</div>{c_diff_str}</div>'
+    elif es_nyp and dev_nyp is not None:
         pilar_html = f'<div class="indice-card"><div class="label">Pilar NyP (sucursal)</div><div class="val">{dev_nyp:.2f}</div></div>'
-    elif dev_emp is not None or dev_nyp is not None:
-        # tipo_rol desconocido — mostrar el que haya
+        banco_val = promedios_banco.get("dev_nyp")
+        tam_banco = promedios_banco.get("tam_nyp")
+        if banco_val is not None:
+            dev_diff = (dev_nyp - banco_val) if dev_nyp else None
+            diff_str = (f'<span class="delta {"delta-up" if dev_diff >= 0 else "delta-down"}">'
+                        f'{"+" if dev_diff >= 0 else ""}{dev_diff:.2f} vs banco</span>') if dev_diff is not None else ""
+            banco_html += f'<div class="indice-card"><div class="label">Prom. Banco NyP</div><div class="val">{banco_val:.2f}</div>{diff_str}</div>'
+        if tam_banco is not None:
+            rol_row_c = _find_rol_row(df_info_rol, selected)
+            clientes_rol = int(rol_row_c.get("clientes", 0)) if rol_row_c is not None else None
+            if clientes_rol is not None:
+                c_diff = clientes_rol - int(tam_banco)
+                c_diff_str = f'<span class="delta {"delta-up" if c_diff >= 0 else "delta-down"}">{"+" if c_diff >= 0 else ""}{c_diff} vs banco</span>'
+                banco_html += f'<div class="indice-card"><div class="label">Clientes vs banco (avg {int(tam_banco)})</div><div class="val">{clientes_rol}</div>{c_diff_str}</div>'
+    else:
         if dev_emp is not None:
             pilar_html += f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'
         if dev_nyp is not None:
@@ -394,6 +420,7 @@ if indice_data or indice_base is not None:
     indice_html += f'<div class="indice-card"><div class="label">Base (INFO_ROL)</div><div class="val">{idx_base_str}</div></div>'
     indice_html += f'<div class="indice-card"><div class="label">Calculado (CritCom)</div><div class="val">{idx_calc_str}</div>{delta_text}</div>'
     indice_html += pilar_html
+    indice_html += banco_html
     indice_html += '</div></div>'
     st.markdown(indice_html, unsafe_allow_html=True)
 
@@ -528,6 +555,8 @@ if st.button("Generar y enviar mi reporte PDF", type="primary", use_container_wi
         df_pdf,
         titulo=f"Reporte {selected.title()} — {sucursal}",
         indices_rol=indices_pdf,
+        promedios_pilar=promedios,
+        promedios_banco=promedios_banco,
     )
 
     if pdf_bytes:

@@ -160,6 +160,7 @@ def _procesar(archivo_recip, archivo_roles, sucursal):
             if info_rol:
                 st.session_state["df_info_rol"] = info_rol["roles"]
                 st.session_state["promedios_pilar"] = info_rol["promedios"]
+                st.session_state["promedios_banco"] = info_rol.get("promedios_banco", {})
         if errores_c:
             for e in errores_c:
                 st.warning(e)
@@ -191,6 +192,7 @@ def _procesar(archivo_recip, archivo_roles, sucursal):
         "df_cartera": st.session_state.get("df_cartera"),
         "df_info_rol": st.session_state.get("df_info_rol"),
         "promedios_pilar": st.session_state.get("promedios_pilar"),
+        "promedios_banco": st.session_state.get("promedios_banco"),
         "sucursal_filtro": st.session_state.get("sucursal_filtro"),
         "snapshot_id": snapshot_id,
     }

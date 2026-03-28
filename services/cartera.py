@@ -116,11 +116,40 @@ def cruzar_con_cartera(df, df_cartera):
 def parsear_info_rol(uploaded_file, sucursal=None):
     """
     Lee la hoja INFO_ROL del Informe de Roles (.xlsb/.xlsx).
-    Retorna dict con 'promedios' (pilar) y 'roles' (DataFrame).
+    Retorna dict con 'promedios' (pilar sucursal), 'promedios_banco' (banco) y 'roles' (DataFrame).
     """
+    import re
     nombre = uploaded_file.name.lower()
-    uploaded_file.seek(0)
 
+    # ── Leer promedios banco del encabezado (primeras filas, sin header) ──
+    promedios_banco = {"dev_empresas": None, "dev_nyp": None, "tam_empresas": None, "tam_nyp": None}
+    try:
+        uploaded_file.seek(0)
+        if nombre.endswith(".xlsb"):
+            df_raw = pd.read_excel(uploaded_file, engine="pyxlsb",
+                                   sheet_name="INFO_ROL", header=None, nrows=6)
+        else:
+            df_raw = pd.read_excel(uploaded_file, sheet_name="INFO_ROL",
+                                   header=None, nrows=6)
+        for i in range(len(df_raw)):
+            row_vals = df_raw.iloc[i].tolist()
+            for j, cell in enumerate(row_vals):
+                cell_str = str(cell).upper()
+                nxt = pd.to_numeric(row_vals[j + 1], errors="coerce") if j + 1 < len(row_vals) else None
+                if "TAMA" in cell_str and "EMPRESA" in cell_str and nxt is not None:
+                    promedios_banco["tam_empresas"] = nxt
+                elif "DESARROLLO" in cell_str and "EMPRESA" in cell_str and nxt is not None:
+                    promedios_banco["dev_empresas"] = nxt
+                elif "TAMA" in cell_str and ("NYP" in cell_str or "NyP".upper() in cell_str) and nxt is not None:
+                    promedios_banco["tam_nyp"] = nxt
+                elif "DESARROLLO" in cell_str and ("NYP" in cell_str or "NyP".upper() in cell_str) and nxt is not None:
+                    promedios_banco["dev_nyp"] = nxt
+        logger.info(f"Promedios banco: {promedios_banco}")
+    except Exception as e:
+        logger.warning(f"No se pudieron leer promedios banco del encabezado: {e}")
+
+    # ── Leer datos de roles (con header en fila 4) ──
+    uploaded_file.seek(0)
     try:
         if nombre.endswith(".xlsb"):
             df = pd.read_excel(uploaded_file, engine="pyxlsb",
@@ -150,8 +179,6 @@ def parsear_info_rol(uploaded_file, sucursal=None):
         col_map["clientes"] = col_names[13]
     if len(col_names) > 20:
         col_map["indic_desarr"] = col_names[20]
-
-    import re
 
     # Renombrar columnas y tomar todos los datos
     rename = {v: k for k, v in col_map.items()}
@@ -193,8 +220,8 @@ def parsear_info_rol(uploaded_file, sucursal=None):
     except Exception as e:
         logger.warning(f"No se pudieron calcular promedios de pilar: {e}")
 
-    logger.info(f"INFO_ROL parseado: {len(df_roles)} roles — promedios: {promedios}")
-    return {"promedios": promedios, "roles": df_roles}
+    logger.info(f"INFO_ROL parseado: {len(df_roles)} roles — promedios: {promedios} — banco: {promedios_banco}")
+    return {"promedios": promedios, "promedios_banco": promedios_banco, "roles": df_roles}
 
 
 def calcular_indice_desarrollo(df_cartera_rol, df_comparacion):

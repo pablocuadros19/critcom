@@ -1,181 +1,527 @@
 """
-Dashboard con KPIs generales y resumen visual.
+Dashboard CritCom v2 — Cards con foto, índice de desarrollo,
+cambios cualitativos, optimización de cartera, Web Share API.
 """
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
+import base64
+import os
+from io import BytesIO
+from datetime import datetime
 
-from config import CRITERIOS, FLAG_COLS, CATEGORIAS
+from config import (
+    CRITERIOS, FLAG_COLS, CATEGORIAS, ROLES_VB,
+    puntos_reciprocidad, RECIPROCIDAD_LABELS,
+)
+from services.cartera import calcular_indice_desarrollo, optimizacion_cartera
+from services.exportador import exportar_pdf
 
 
-def render():
-    st.header("Dashboard")
+# ── CSS ─────────────────────────────────────────────────────────────────
+def _inject_css():
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&display=swap');
+    .dash-header {
+        font-family: 'Montserrat', sans-serif;
+        text-align: center;
+        padding: 0.5rem 0;
+    }
+    .dash-header h2 {
+        font-size: 1.6rem; font-weight: 600; color: #1a1a2e; margin: 0;
+    }
+    .dash-header .fecha {
+        font-size: 0.75rem; color: #999; text-transform: uppercase; letter-spacing: 2px;
+    }
+    .dash-divider {
+        height: 3px;
+        background: linear-gradient(90deg, #00A651, #00B8D4);
+        border: none; margin: 0.8rem 0 1.2rem 0; border-radius: 2px;
+    }
 
-    df = st.session_state.get("df_comparacion")
-    if df is None or df.empty:
-        st.info("No hay datos cargados. Subí un archivo en **Carga de Archivos**.")
-        return
+    /* Cards de ejecutivo */
+    .role-cards { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-bottom: 1.2rem; }
+    .role-card {
+        background: #f7f9fc; border: 2px solid #e0e5ec; border-radius: 14px;
+        padding: 12px 16px; text-align: center; cursor: pointer;
+        transition: all 0.2s; min-width: 110px; flex: 0 1 auto;
+    }
+    .role-card:hover { border-color: #00A651; box-shadow: 0 4px 15px rgba(0,166,81,.15); }
+    .role-card.active { border-color: #00A651; background: #f0f9f4; }
+    .role-card img {
+        width: 70px; height: 70px; border-radius: 50%; object-fit: cover;
+        border: 3px solid #e0e5ec; margin-bottom: 6px;
+    }
+    .role-card.active img { border-color: #00A651; }
+    .role-card .name { font-family: 'Montserrat', sans-serif; font-size: 0.78rem; font-weight: 700; color: #1a1a2e; }
+    .role-card .initials {
+        width: 70px; height: 70px; border-radius: 50%; background: #00A651;
+        display: flex; align-items: center; justify-content: center;
+        color: white; font-size: 1.4rem; font-weight: 700; margin: 0 auto 6px auto;
+        font-family: 'Montserrat', sans-serif;
+    }
 
-    # ── KPIs principales ───────────────────────────────────────────────────
-    total = len(df)
-    estados = df["estado"].value_counts()
+    /* KPI métricas */
+    .kpi-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1rem; }
+    .kpi-box {
+        background: #f7f9fc; border: 1px solid #e0e5ec; border-radius: 10px;
+        padding: 10px 14px; flex: 1; min-width: 100px; text-align: center;
+    }
+    .kpi-box .value { font-family: 'Montserrat', sans-serif; font-size: 1.8rem; font-weight: 700; color: #00A651; }
+    .kpi-box .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: #666; font-weight: 600; }
 
-    nuevos      = int(estados.get("NUEVO", 0))
-    mejoraron   = int(estados.get("MEJORO", 0))
-    empeoraron  = int(estados.get("EMPEORO", 0))
-    sin_cambios = int(estados.get("SIN_CAMBIOS", 0))
-    desaparecidos = int(estados.get("DESAPARECIDO", 0))
-    cambio_lat  = int(estados.get("CAMBIO_LATERAL", 0))
+    /* Badges de criterios */
+    .badge-ganado {
+        display: inline-block; background: #e8f5ee; color: #00A651;
+        padding: 2px 8px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; margin: 1px 2px;
+    }
+    .badge-perdido {
+        display: inline-block; background: #fce4ec; color: #c62828;
+        padding: 2px 8px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; margin: 1px 2px;
+    }
 
-    quick_wins = 0
-    if "criterio_sugerido" in df.columns:
-        quick_wins = int(df["criterio_sugerido"].apply(
-            lambda x: CRITERIOS.get(x, {}).get("categoria", "") == "rapido"
-        ).sum())
+    /* Índice */
+    .indice-row { display: flex; gap: 14px; flex-wrap: wrap; margin: 0.8rem 0; }
+    .indice-card {
+        background: #f7f9fc; border: 1px solid #e0e5ec; border-radius: 12px;
+        padding: 14px 18px; flex: 1; min-width: 140px;
+    }
+    .indice-card .label { font-size: 0.7rem; text-transform: uppercase; color: #999; letter-spacing: 1px; }
+    .indice-card .val { font-size: 1.6rem; font-weight: 700; color: #00A651; font-family: 'Montserrat', sans-serif; }
+    .indice-card .delta { font-size: 0.85rem; font-weight: 600; }
+    .delta-up { color: #00A651; }
+    .delta-down { color: #c62828; }
 
-    cerca_nivel_total = int(df["cerca_nivel"].sum()) if "cerca_nivel" in df.columns else 0
+    /* Sección destacada */
+    .seccion-highlight {
+        background: #f0f9f4; border: 1px solid #c8e6d5; border-left: 4px solid #00A651;
+        border-radius: 12px; padding: 14px 16px; margin: 0.8rem 0;
+    }
+    .seccion-highlight h4 {
+        font-family: 'Montserrat', sans-serif; font-size: 0.9rem; font-weight: 700; color: #1a1a2e; margin: 0 0 8px 0;
+    }
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total clientes", total)
-    c2.metric("Mejoraron", mejoraron, delta=mejoraron or None)
-    c3.metric("Empeoraron", empeoraron, delta=(-empeoraron) if empeoraron > 0 else None)
-    c4.metric("Quick wins", quick_wins)
-    c5.metric("Quick Win Nivel", cerca_nivel_total)
+    @media (max-width: 768px) {
+        .role-card { min-width: 80px; padding: 8px 10px; }
+        .role-card img, .role-card .initials { width: 50px; height: 50px; font-size: 1rem; }
+        .role-card .name { font-size: 0.7rem; }
+        .kpi-box .value { font-size: 1.3rem; }
+        .indice-card .val { font-size: 1.2rem; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    c6, c7, c8, c9 = st.columns(4)
-    c6.metric("Nuevos", nuevos)
-    c7.metric("Sin cambios", sin_cambios)
-    c8.metric("Cambio lateral", cambio_lat)
-    c9.metric("Desaparecidos", desaparecidos)
 
-    # ── Alerta: clientes a un criterio de subir ────────────────────────────
-    if cerca_nivel_total > 0 and "cerca_nivel" in df.columns:
-        st.divider()
-        with st.container(border=True):
-            st.markdown(
-                f"### Clientes a un criterio de subir de nivel ({cerca_nivel_total})"
-            )
-            st.caption(
-                "Tienen al menos un criterio **Rápido / Táctico** disponible y no están en el nivel máximo. "
-                "Activar uno de estos es la acción de mayor impacto inmediato."
-            )
-            df_cerca = df[df["cerca_nivel"] == True].copy()
-            if "score_nba" in df_cerca.columns:
-                df_cerca = df_cerca.sort_values("score_nba", ascending=False)
-            cols_cerca = ["nom_cliente", "cuit", "estado", "cumplimiento_actual",
-                          "total_flags_actual", "criterio_nombre", "score_nba"]
-            if "nombre_rol" in df_cerca.columns:
-                cols_cerca.append("nombre_rol")
-            cols_disp = [c for c in cols_cerca if c in df_cerca.columns]
-            st.dataframe(
-                df_cerca[cols_disp].rename(columns={
-                    "nom_cliente": "Cliente", "cuit": "CUIT", "estado": "Estado",
-                    "cumplimiento_actual": "Cumplimiento", "total_flags_actual": "Criterios",
-                    "criterio_nombre": "Criterio Fácil Sugerido", "score_nba": "Score",
-                    "nombre_rol": "Ejecutivo",
-                }),
-                use_container_width=True, hide_index=True,
-            )
+def _get_initials(name):
+    parts = name.split()
+    if len(parts) >= 2:
+        return (parts[0][0] + parts[-1][0]).upper()
+    return name[:2].upper()
 
-    st.divider()
 
-    # ── Gráficos ───────────────────────────────────────────────────────────
-    col_a, col_b = st.columns(2)
+def _img_to_base64(path):
+    try:
+        abs_path = os.path.abspath(path)
+        if os.path.exists(abs_path):
+            with open(abs_path, "rb") as f:
+                return base64.b64encode(f.read()).decode()
+    except Exception:
+        pass
+    return None
 
-    with col_a:
-        st.subheader("Distribución por estado")
-        df_estados = pd.DataFrame({
-            "Estado": ["Mejoraron", "Empeoraron", "Sin cambios", "Nuevos", "Desaparecidos", "Cambio lat."],
-            "Cantidad": [mejoraron, empeoraron, sin_cambios, nuevos, desaparecidos, cambio_lat],
-        })
-        df_estados = df_estados[df_estados["Cantidad"] > 0]
-        if not df_estados.empty:
-            st.bar_chart(df_estados.set_index("Estado"))
 
-    with col_b:
-        st.subheader("Criterios cumplidos por tipo")
-        criterios_data = {}
-        for f in FLAG_COLS:
-            if f in df.columns and f in CRITERIOS:
-                criterios_data[CRITERIOS[f]["nombre"]] = int(df[f].sum())
-        if criterios_data:
-            df_crit = pd.DataFrame({
-                "Criterio": criterios_data.keys(),
-                "Clientes": criterios_data.values(),
-            }).sort_values("Clientes", ascending=True)
-            st.bar_chart(df_crit.set_index("Criterio"))
+def _badge_ganado(flag_key):
+    nombre = CRITERIOS.get(flag_key, {}).get("nombre", flag_key)
+    return f'<span class="badge-ganado">+ {nombre}</span>'
 
-    # ── Ranking de criterios por facilidad ────────────────────────────────
-    st.divider()
-    st.subheader("Ranking de criterios: oportunidades por facilidad")
-    st.caption("Criterios con más clientes que aún no los tienen activados, ordenados por facilidad de activación")
 
-    ranking_data = []
-    for f in FLAG_COLS:
-        if f in df.columns and f in CRITERIOS:
-            meta = CRITERIOS[f]
-            activos = int(df[f].sum())
-            faltantes = total - activos
-            ranking_data.append({
-                "Criterio": meta["nombre"],
-                "Categoría": CATEGORIAS.get(meta["categoria"], meta["categoria"]),
-                "Facilidad": meta["facilidad"],
-                "Impacto": meta["impacto"],
-                "Con criterio": activos,
-                "Sin criterio": faltantes,
-            })
+def _badge_perdido(flag_key):
+    nombre = CRITERIOS.get(flag_key, {}).get("nombre", flag_key)
+    return f'<span class="badge-perdido">- {nombre}</span>'
 
-    if ranking_data:
-        df_rank = pd.DataFrame(ranking_data).sort_values(
-            ["Facilidad", "Sin criterio"], ascending=[False, False]
+
+# ── Navegación auxiliar ─────────────────────────────────────────────────
+def _nav_buttons():
+    """Botones de navegación horizontal."""
+    cols = st.columns(4)
+    pages = [
+        ("vistas/landing.py", "Inicio"),
+        ("vistas/tabla.py", "Tabla Operativa"),
+        ("vistas/detalle.py", "Detalle Cliente"),
+        ("vistas/exportacion.py", "Exportar"),
+    ]
+    for i, (page, label) in enumerate(pages):
+        with cols[i]:
+            if st.button(label, use_container_width=True, key=f"nav_{label}"):
+                st.switch_page(page)
+
+
+# ── Página principal ────────────────────────────────────────────────────
+_inject_css()
+
+df = st.session_state.get("df_comparacion")
+if df is None or df.empty:
+    st.info("No hay datos cargados. Cargá archivos desde la página de inicio.")
+    if st.button("Ir a Inicio", type="primary"):
+        st.switch_page("vistas/landing.py")
+    st.stop()
+
+# Header
+snap_id = st.session_state.get("snapshot_id", "")
+sucursal = st.session_state.get("sucursal_filtro", "")
+fecha_str = datetime.now().strftime("%d/%m/%Y")
+
+st.markdown(f"""
+<div class="dash-header">
+    <h2>Dashboard</h2>
+    <span class="fecha">{sucursal} | Snapshot #{snap_id} | {fecha_str}</span>
+</div>
+<div class="dash-divider"></div>
+""", unsafe_allow_html=True)
+
+# ── Cards de ejecutivos (solo los de ROLES_VB) ─────────────────────────
+opciones_roles = list(ROLES_VB.keys()) + ["SIN ASIGNAR"]
+
+# Selector con cards
+cards_html = '<div class="role-cards">'
+for rol in opciones_roles:
+    active = "active" if st.session_state.get("selected_role") == rol else ""
+    info_rol = ROLES_VB.get(rol, {})
+    foto_path = info_rol.get("foto", "")
+    b64 = _img_to_base64(foto_path) if foto_path else None
+
+    if b64:
+        ext = foto_path.rsplit(".", 1)[-1].lower()
+        mime = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png"
+        avatar = f'<img src="data:{mime};base64,{b64}" alt="{rol}">'
+    else:
+        avatar = f'<div class="initials">{_get_initials(rol)}</div>'
+
+    display_name = rol.title() if rol != "SIN ASIGNAR" else "Sin Asignar"
+    cards_html += f'<div class="role-card {active}">{avatar}<div class="name">{display_name}</div></div>'
+
+cards_html += '</div>'
+st.markdown(cards_html, unsafe_allow_html=True)
+
+# Selector funcional (streamlit necesita un widget real para interactividad)
+selected = st.selectbox(
+    "Seleccionar ejecutivo",
+    opciones_roles,
+    index=opciones_roles.index(st.session_state.get("selected_role", opciones_roles[0]))
+        if st.session_state.get("selected_role") in opciones_roles else 0,
+    key="role_select",
+    label_visibility="collapsed",
+)
+st.session_state["selected_role"] = selected
+
+# ── Filtrar datos ───────────────────────────────────────────────────────
+if selected == "SIN ASIGNAR":
+    df_fil = df[df["nombre_rol"].fillna("SIN ASIGNAR") == "SIN ASIGNAR"].copy()
+else:
+    df_fil = df[df["nombre_rol"] == selected].copy()
+
+# ── SIN ASIGNAR → tabla simple ──────────────────────────────────────────
+if selected == "SIN ASIGNAR":
+    st.markdown(f"### Clientes sin asignar ({len(df_fil)})")
+    if not df_fil.empty:
+        # Ordenar por total_flags desc
+        if "total_flags_actual" in df_fil.columns:
+            df_fil = df_fil.sort_values("total_flags_actual", ascending=False)
+        cols_show = ["nom_cliente", "cuit", "total_flags_actual", "estado",
+                     "criterio_nombre", "accion_texto", "score_nba"]
+        cols_disp = [c for c in cols_show if c in df_fil.columns]
+        st.dataframe(
+            df_fil[cols_disp].rename(columns={
+                "nom_cliente": "Cliente", "cuit": "CUIT",
+                "total_flags_actual": "Criterios", "estado": "Estado",
+                "criterio_nombre": "Criterio Sugerido", "accion_texto": "Acción",
+                "score_nba": "Score NBA",
+            }),
+            use_container_width=True, hide_index=True,
         )
-        st.dataframe(df_rank, use_container_width=True, hide_index=True)
+    else:
+        st.info("No hay clientes sin asignar.")
 
-    # ── Top 10 oportunidades ──────────────────────────────────────────────
-    st.divider()
-    st.subheader("Top 10 oportunidades (mayor prioridad NBA)")
+    _nav_buttons()
+    st.stop()
 
-    if "score_nba" in df.columns:
-        df_top = df[df["score_nba"] > 0].nlargest(10, "score_nba")
-        if not df_top.empty:
-            cols_show = ["nom_cliente", "cuit", "estado", "total_flags_actual",
-                         "criterio_nombre", "accion_texto", "score_nba", "cerca_nivel"]
-            if "nombre_rol" in df_top.columns:
-                cols_show.append("nombre_rol")
-            cols_disp = [c for c in cols_show if c in df_top.columns]
+# ── Dashboard del ejecutivo seleccionado ────────────────────────────────
+
+# KPIs
+estados = df_fil["estado"].value_counts() if "estado" in df_fil.columns else pd.Series(dtype=int)
+mejoraron = int(estados.get("MEJORO", 0))
+empeoraron = int(estados.get("EMPEORO", 0))
+sin_cambios = int(estados.get("SIN_CAMBIOS", 0))
+cerca_nivel_n = int(df_fil["cerca_nivel"].sum()) if "cerca_nivel" in df_fil.columns else 0
+
+kpi_html = f"""
+<div class="kpi-row">
+    <div class="kpi-box"><div class="value">{len(df_fil)}</div><div class="label">Mis clientes</div></div>
+    <div class="kpi-box"><div class="value" style="color:#00A651">{mejoraron}</div><div class="label">Mejoraron</div></div>
+    <div class="kpi-box"><div class="value" style="color:#c62828">{empeoraron}</div><div class="label">Empeoraron</div></div>
+    <div class="kpi-box"><div class="value">{sin_cambios}</div><div class="label">Sin cambios</div></div>
+    <div class="kpi-box"><div class="value" style="color:#00B8D4">{cerca_nivel_n}</div><div class="label">Quick Win Nivel</div></div>
+</div>
+"""
+st.markdown(kpi_html, unsafe_allow_html=True)
+
+# ── Índice de desarrollo ────────────────────────────────────────────────
+df_cartera = st.session_state.get("df_cartera")
+df_info_rol = st.session_state.get("df_info_rol")
+promedios = st.session_state.get("promedios_pilar", {})
+
+# Calcular índice CritCom
+indice_data = None
+if df_cartera is not None and not df_cartera.empty and "nombre_rol" in df_cartera.columns:
+    df_cartera_rol = df_cartera[df_cartera["nombre_rol"] == selected]
+    indice_data = calcular_indice_desarrollo(df_cartera_rol, df)
+
+# Índice base del INFO_ROL
+indice_base = None
+if df_info_rol is not None and not df_info_rol.empty:
+    rol_info = df_info_rol[df_info_rol["nombre_rol"].str.upper() == selected.upper()]
+    if not rol_info.empty:
+        indice_base = rol_info.iloc[0].get("indic_desarr")
+
+if indice_data or indice_base is not None:
+    st.markdown('<div class="dash-divider"></div>', unsafe_allow_html=True)
+
+    indice_calc = indice_data["indice"] if indice_data else 0
+    delta_idx = None
+    delta_class = ""
+    delta_text = ""
+    if indice_base is not None and indice_data:
+        delta_idx = indice_calc - float(indice_base)
+        delta_class = "delta-up" if delta_idx >= 0 else "delta-down"
+        arrow = "+" if delta_idx >= 0 else ""
+        delta_text = f'<span class="delta {delta_class}">{arrow}{delta_idx:.3f}</span>'
+
+    # Promedios de pilar
+    dev_emp = promedios.get("dev_empresas")
+    dev_nyp = promedios.get("dev_nyp")
+    pilar_html = ""
+    if dev_emp is not None:
+        pilar_html += f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'
+    if dev_nyp is not None:
+        pilar_html += f'<div class="indice-card"><div class="label">Pilar NyP (sucursal)</div><div class="val">{dev_nyp:.2f}</div></div>'
+
+    idx_base_str = f"{float(indice_base):.3f}" if indice_base is not None else "N/D"
+    idx_calc_str = f"{indice_calc:.3f}" if indice_data else "N/D"
+
+    indice_html = '<div class="seccion-highlight"><h4>Indice de Desarrollo</h4><div class="indice-row">'
+    indice_html += f'<div class="indice-card"><div class="label">Base (INFO_ROL)</div><div class="val">{idx_base_str}</div></div>'
+    indice_html += f'<div class="indice-card"><div class="label">Calculado (CritCom)</div><div class="val">{idx_calc_str}</div>{delta_text}</div>'
+    indice_html += pilar_html
+    indice_html += '</div></div>'
+    st.markdown(indice_html, unsafe_allow_html=True)
+
+    # Detalle de composición
+    if indice_data and indice_data["total"] > 0:
+        total_c = indice_data["total"]
+        st.caption(
+            f"Composición: ALTA {indice_data['alta']} | MEDIA {indice_data['media']} | "
+            f"BAJA {indice_data['baja']} | SIN {indice_data['sin']} — Total: {total_c}"
+        )
+
+# ── Cambios cualitativos ───────────────────────────────────────────────
+st.markdown('<div class="dash-divider"></div>', unsafe_allow_html=True)
+st.markdown("### Clientes con cambios")
+
+df_cambios = df_fil[df_fil["estado"].isin(["EMPEORO", "MEJORO", "NUEVO", "CAMBIO_LATERAL"])].copy()
+
+if not df_cambios.empty:
+    # Ordenar: EMPEORO > MEJORO > NUEVO > CAMBIO_LATERAL, luego por puntos desc
+    orden_estado = {"EMPEORO": 0, "MEJORO": 1, "NUEVO": 2, "CAMBIO_LATERAL": 3}
+    df_cambios["_orden"] = df_cambios["estado"].map(orden_estado)
+    df_cambios["_puntos"] = df_cambios["total_flags_actual"].apply(
+        lambda x: puntos_reciprocidad(int(x or 0)))
+    df_cambios = df_cambios.sort_values(["_orden", "_puntos"], ascending=[True, False])
+
+    # Tabla con badges
+    rows_html = []
+    for _, row in df_cambios.iterrows():
+        nombre = row.get("nom_cliente", "")
+        estado = row.get("estado", "")
+        crit_act = int(row.get("total_flags_actual", 0))
+
+        # Badges de ganados/perdidos
+        ganados_str = str(row.get("flags_ganados", ""))
+        perdidos_str = str(row.get("flags_perdidos", ""))
+        badges_g = " ".join([_badge_ganado(f.strip()) for f in ganados_str.split(",") if f.strip() and f.strip() in CRITERIOS])
+        badges_p = " ".join([_badge_perdido(f.strip()) for f in perdidos_str.split(",") if f.strip() and f.strip() in CRITERIOS])
+
+        # Color de fila según estado
+        color_map = {"MEJORO": "#f0f9f4", "EMPEORO": "#fce4ec", "NUEVO": "#e3f2fd", "CAMBIO_LATERAL": "#fff8e1"}
+        bg = color_map.get(estado, "#fff")
+        estado_display = {"MEJORO": "Mejoro", "EMPEORO": "Empeoro", "NUEVO": "Nuevo", "CAMBIO_LATERAL": "Cambio lat."}.get(estado, estado)
+
+        rows_html.append(f"""
+        <tr style="background:{bg}">
+            <td style="padding:6px 8px;font-weight:600;font-size:0.85rem">{nombre}</td>
+            <td style="padding:6px 8px;text-align:center;font-size:0.8rem">{estado_display}</td>
+            <td style="padding:6px 8px;text-align:center;font-weight:700">{crit_act}/15</td>
+            <td style="padding:6px 8px">{badges_g}</td>
+            <td style="padding:6px 8px">{badges_p}</td>
+        </tr>
+        """)
+
+    table_html = f"""
+    <table style="width:100%;border-collapse:collapse;border-radius:10px;overflow:hidden;border:1px solid #e0e5ec;font-family:'Montserrat',sans-serif">
+        <thead>
+            <tr style="background:#00A651;color:white">
+                <th style="padding:8px 10px;text-align:left;font-size:0.8rem">Cliente</th>
+                <th style="padding:8px 10px;text-align:center;font-size:0.8rem">Estado</th>
+                <th style="padding:8px 10px;text-align:center;font-size:0.8rem">Crit.</th>
+                <th style="padding:8px 10px;text-align:left;font-size:0.8rem">Gano</th>
+                <th style="padding:8px 10px;text-align:left;font-size:0.8rem">Perdio</th>
+            </tr>
+        </thead>
+        <tbody>{"".join(rows_html)}</tbody>
+    </table>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
+else:
+    st.info("Sin cambios en esta cartera.")
+
+# ── Optimización de cartera ─────────────────────────────────────────────
+if indice_data and indice_data["indice"] > 0:
+    indice_actual = indice_data["indice"]
+    opt = optimizacion_cartera(df, df_cartera, selected, indice_actual)
+
+    with st.expander(f"Optimizacion de cartera (indice actual: {indice_actual:.3f})"):
+        # Clientes que bajan el índice
+        df_bajan = opt["bajan_indice"]
+        if not df_bajan.empty:
+            st.markdown("**Clientes por debajo de tu indice** — revisa si conviene mejorarlos o liberarlos")
+            cols_b = ["nom_cliente", "cuit", "total_flags_actual", "puntos_recip", "nivel_recip"]
+            cols_b_disp = [c for c in cols_b if c in df_bajan.columns]
             st.dataframe(
-                df_top[cols_disp].rename(columns={
-                    "nom_cliente": "Cliente", "cuit": "CUIT", "estado": "Estado",
-                    "total_flags_actual": "Criterios", "criterio_nombre": "Criterio Sugerido",
-                    "accion_texto": "Acción", "score_nba": "Score", "cerca_nivel": "QW Nivel",
-                    "nombre_rol": "Ejecutivo",
+                df_bajan[cols_b_disp].rename(columns={
+                    "nom_cliente": "Cliente", "cuit": "CUIT",
+                    "total_flags_actual": "Criterios", "puntos_recip": "Puntos",
+                    "nivel_recip": "Reciprocidad",
                 }),
                 use_container_width=True, hide_index=True,
             )
         else:
-            st.info("No hay oportunidades con score NBA > 0")
+            st.success("Todos tus clientes estan por encima o al nivel de tu indice.")
 
-    # ── Distribución por cumplimiento ─────────────────────────────────────
-    st.divider()
-    st.subheader("Distribución por nivel de cumplimiento")
-    col_cumpl = "cumplimiento_actual" if "cumplimiento_actual" in df.columns else None
-    if col_cumpl:
-        cumpl = df[col_cumpl].value_counts().sort_index()
-        if not cumpl.empty:
-            df_cumpl = pd.DataFrame({"Nivel": cumpl.index, "Cantidad": cumpl.values})
-            st.bar_chart(df_cumpl.set_index("Nivel"))
+        st.markdown("---")
 
-    # ── Resumen por ejecutivo ─────────────────────────────────────────────
-    if "nombre_rol" in df.columns:
-        st.divider()
-        st.subheader("Resumen por ejecutivo")
-        df_ej = df.groupby("nombre_rol").agg(
-            Clientes=("cuit", "count"),
-            Promedio_Criterios=("total_flags_actual", "mean"),
-            Mejoraron=("estado", lambda x: (x == "MEJORO").sum()),
-            Empeoraron=("estado", lambda x: (x == "EMPEORO").sum()),
-            Quick_Wins=("criterio_sugerido", lambda x: sum(
-                CRITERIOS.get(v, {}).get("categoria", "") == "rapido" for v in x if v
-            )),
-            QW_Nivel=("cerca_nivel", lambda x: x.sum()) if "cerca_nivel" in df.columns else ("cuit", lambda x: 0),
-        ).round(1).sort_values("Clientes", ascending=False)
-        st.dataframe(df_ej, use_container_width=True)
+        # Candidatos a incorporar
+        df_cand = opt["candidatos"]
+        if not df_cand.empty:
+            st.markdown("**Clientes sin asignar que mejorarian tu indice**")
+            cols_c = ["nom_cliente", "cuit", "total_flags_actual", "puntos_recip", "nivel_recip"]
+            cols_c_disp = [c for c in cols_c if c in df_cand.columns]
+            st.dataframe(
+                df_cand[cols_c_disp].head(20).rename(columns={
+                    "nom_cliente": "Cliente", "cuit": "CUIT",
+                    "total_flags_actual": "Criterios", "puntos_recip": "Puntos",
+                    "nivel_recip": "Reciprocidad",
+                }),
+                use_container_width=True, hide_index=True,
+            )
+        else:
+            st.info("No hay candidatos sin asignar que superen tu indice.")
+
+# ── Desaparecidos ───────────────────────────────────────────────────────
+df_desap = df_fil[df_fil["estado"] == "DESAPARECIDO"]
+if not df_desap.empty:
+    st.markdown('<div class="dash-divider"></div>', unsafe_allow_html=True)
+    st.markdown(f"### Clientes que desaparecieron del listado ({len(df_desap)})")
+    st.caption("Estaban en el snapshot anterior y ya no aparecen. Investigar por que.")
+    cols_d = ["nom_cliente", "cuit", "total_flags_anterior", "cumplimiento_anterior"]
+    cols_d_disp = [c for c in cols_d if c in df_desap.columns]
+    st.dataframe(
+        df_desap[cols_d_disp].rename(columns={
+            "nom_cliente": "Cliente", "cuit": "CUIT",
+            "total_flags_anterior": "Crit. Anterior",
+            "cumplimiento_anterior": "Cumpl. Anterior",
+        }),
+        use_container_width=True, hide_index=True,
+    )
+
+# ── Envío — Web Share API ───────────────────────────────────────────────
+st.markdown('<div class="dash-divider"></div>', unsafe_allow_html=True)
+st.markdown("### Enviar reporte")
+
+info_rol_email = ROLES_VB.get(selected, {})
+email_dest = info_rol_email.get("email", "")
+
+incluir_sin_asignar = st.checkbox("Incluir clientes sin asignar en el PDF", value=False, key="chk_sin_asignar")
+
+if st.button("Generar y enviar mi reporte PDF", type="primary", use_container_width=True):
+    # Generar PDF para este ejecutivo
+    df_pdf = df_fil.copy()
+    if incluir_sin_asignar:
+        df_sin = df[df["nombre_rol"].fillna("SIN ASIGNAR") == "SIN ASIGNAR"]
+        df_pdf = pd.concat([df_pdf, df_sin], ignore_index=True)
+
+    # Calcular índices para el PDF
+    indices_pdf = {}
+    if indice_data:
+        indices_pdf[selected] = indice_data["indice"]
+
+    pdf_bytes = exportar_pdf(
+        df_pdf,
+        titulo=f"Reporte {selected.title()} — {sucursal}",
+        indices_rol=indices_pdf,
+    )
+
+    if pdf_bytes:
+        # Botón de descarga como fallback
+        st.download_button(
+            "Descargar PDF",
+            data=pdf_bytes,
+            file_name=f"CritCom_{selected.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            key="dl_pdf_rol",
+        )
+
+        # Web Share API (funciona en Chrome/Safari mobile)
+        pdf_b64 = base64.b64encode(pdf_bytes).decode()
+        filename = f"CritCom_{selected.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+        subject = f"CritCom - Reporte {selected.title()}"
+        body = f"Adjunto el reporte de criterios comerciales de {selected.title()} - {sucursal}"
+
+        share_js = f"""
+        <script>
+        async function sharePDF() {{
+            try {{
+                const b64 = "{pdf_b64}";
+                const byteChars = atob(b64);
+                const byteNums = new Array(byteChars.length);
+                for (let i = 0; i < byteChars.length; i++) {{
+                    byteNums[i] = byteChars.charCodeAt(i);
+                }}
+                const byteArray = new Uint8Array(byteNums);
+                const blob = new Blob([byteArray], {{type: 'application/pdf'}});
+                const file = new File([blob], "{filename}", {{type: 'application/pdf'}});
+
+                if (navigator.canShare && navigator.canShare({{files: [file]}})) {{
+                    await navigator.share({{
+                        title: "{subject}",
+                        text: "{body}",
+                        files: [file],
+                    }});
+                }} else {{
+                    // Fallback: abrir mail
+                    const mailto = "mailto:{email_dest}?subject=" + encodeURIComponent("{subject}") + "&body=" + encodeURIComponent("{body}");
+                    window.open(mailto, '_blank');
+                }}
+            }} catch(err) {{
+                console.log('Share cancelled or failed:', err);
+            }}
+        }}
+        sharePDF();
+        </script>
+        """
+        components.html(share_js, height=0)
+    else:
+        st.warning("Instala reportlab para generar PDFs: `pip install reportlab`")
+
+# ── Navegación ──────────────────────────────────────────────────────────
+st.markdown('<div class="dash-divider"></div>', unsafe_allow_html=True)
+_nav_buttons()

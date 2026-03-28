@@ -4,7 +4,7 @@ Tabla operativa con filtros.
 import streamlit as st
 import pandas as pd
 
-from config import CRITERIOS, CATEGORIAS
+from config import CRITERIOS, CATEGORIAS, ROLES_VB
 
 
 def render():
@@ -25,7 +25,7 @@ def render():
 
         with c2:
             if "nombre_rol" in df.columns:
-                ejecutivos = ["Todos"] + sorted(df["nombre_rol"].dropna().unique().tolist())
+                ejecutivos = ["Todos"] + list(ROLES_VB.keys()) + ["SIN ASIGNAR"]
                 filtro_ej = st.selectbox("Ejecutivo", ejecutivos)
             else:
                 filtro_ej = "Todos"
@@ -113,3 +113,7 @@ def render():
             cuit_sel = seleccion.split("(")[-1].rstrip(")")
             st.session_state["cliente_sel"] = cuit_sel
             st.info("Cliente seleccionado. Navegá a **Detalle Cliente** en el menú lateral.")
+
+
+# st.navigation ejecuta a nivel módulo
+render()

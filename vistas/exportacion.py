@@ -121,3 +121,7 @@ def render():
         mime="text/csv",
         use_container_width=True,
     )
+
+
+# st.navigation ejecuta a nivel módulo
+render()

@@ -9,7 +9,6 @@ from config import (
     NBA_PESO_FACILIDAD, NBA_PESO_IMPACTO,
     NBA_BONUS_FLAG_PERDIDO, NBA_BONUS_QUICK_WIN, NBA_BONUS_MIPYME,
     NBA_BONUS_CERCA_NIVEL,
-    MAIL_TEMPLATES,
 )
 
 
@@ -123,62 +122,3 @@ def _nba_cliente(row):
         "score_nba": round(mejor_score, 2),
         "cerca_nivel": cerca_nivel,
     }
-
-
-def generar_mail(row):
-    """
-    Genera mail sugerido para un cliente.
-    Retorna {"asunto": str, "cuerpo": str}.
-    """
-    accion_tipo = row.get("accion_tipo", "")
-
-    if not accion_tipo or accion_tipo == "CUMPLE_TODO":
-        return {"asunto": "", "cuerpo": "No hay acción sugerida para este cliente."}
-
-    template = MAIL_TEMPLATES.get(accion_tipo, MAIL_TEMPLATES.get("ACTIVACION"))
-
-    criterio_key = row.get("criterio_sugerido", "")
-    criterio_meta = CRITERIOS.get(criterio_key, {})
-
-    # Detalle de flags faltantes
-    flags_faltantes = str(row.get("flags_faltantes", ""))
-    detalle = []
-    for f in flags_faltantes.split(", "):
-        f = f.strip()
-        if f in CRITERIOS:
-            detalle.append(f"  - {CRITERIOS[f]['nombre']}: {CRITERIOS[f]['definicion']}")
-    detalle_texto = "\n".join(detalle) if detalle else "Sin criterios faltantes"
-
-    # Flags perdidos como texto legible
-    flags_perdidos = str(row.get("flags_perdidos", ""))
-    perdidos = [CRITERIOS[f.strip()]["nombre"] for f in flags_perdidos.split(", ")
-                if f.strip() in CRITERIOS]
-    flags_perdidos_texto = ", ".join(perdidos) if perdidos else "Ninguno"
-
-    contexto = {
-        "nom_cliente": row.get("nom_cliente", ""),
-        "cuit": row.get("cuit", ""),
-        "tipo_empresa": row.get("tipo_empresa", ""),
-        "cumplimiento_actual": row.get("cumplimiento_actual", ""),
-        "cumplimiento_anterior": row.get("cumplimiento_anterior", ""),
-        "total_flags_actual": row.get("total_flags_actual", 0),
-        "total_flags_anterior": row.get("total_flags_anterior", 0),
-        "criterio_nombre": criterio_meta.get("nombre", ""),
-        "criterio_definicion": criterio_meta.get("definicion", ""),
-        "accion_sugerida": criterio_meta.get("accion", ""),
-        "nombre_rol": row.get("nombre_rol", "Responsable"),
-        "sucursal_rol": row.get("sucursal_rol", ""),
-        "detalle_flags_faltantes": detalle_texto,
-        "flags_perdidos_texto": flags_perdidos_texto,
-    }
-
-    try:
-        return {
-            "asunto": template["asunto"].format(**contexto),
-            "cuerpo": template["cuerpo"].format(**contexto),
-        }
-    except KeyError as e:
-        return {
-            "asunto": f"Acción comercial - {contexto['nom_cliente']}",
-            "cuerpo": f"Error al generar mail: falta el campo {e}",
-        }

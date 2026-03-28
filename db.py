@@ -83,9 +83,22 @@ def init_db():
             updated_at TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS indices_rol (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre_rol TEXT NOT NULL,
+            tipo_rol TEXT,
+            fecha TEXT NOT NULL,
+            indic_base REAL,
+            indic_calculado REAL,
+            clientes_total INTEGER,
+            clientes_en_listado INTEGER,
+            updated_at TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_sd_cuit ON snapshot_data(cuit);
         CREATE INDEX IF NOT EXISTS idx_sd_snapshot ON snapshot_data(snapshot_id);
         CREATE INDEX IF NOT EXISTS idx_cartera_cuit ON cartera(cuit);
+        CREATE INDEX IF NOT EXISTS idx_indices_rol ON indices_rol(nombre_rol, fecha);
     """)
     conn.commit()
     conn.close()

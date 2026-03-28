@@ -1,6 +1,6 @@
 """
 Configuración central de CritCom.
-Criterios comerciales, mapeo de columnas, plantillas de mail, pesos NBA.
+Criterios comerciales, mapeo de columnas, pesos NBA, roles sucursal.
 """
 
 # ── Mapeo de columnas del CSV de reciprocidad ──────────────────────────────────
@@ -35,7 +35,6 @@ COLUMN_MAP = {
     "Descuento Cheques": "descuento_cheques",
 }
 
-# Columnas flag (binarias 0/1) - las 15 del listado
 FLAG_COLS = [
     "fl_acred_cupon", "fl_cant_empleados", "fl_cdni_comercio",
     "fl_pactar", "fl_procampo", "fl_recaudacion", "fl_prestamo_inv",
@@ -43,7 +42,6 @@ FLAG_COLS = [
     "fl_uso_visa_b", "fl_emp_proveedora", "fl_cant_desc_cheques", "fl_inv_fin",
 ]
 
-# Columnas requeridas mínimas para validar el archivo
 REQUIRED_COLS = ["cuit", "nom_cliente"] + FLAG_COLS
 
 # ── Mapeo de columnas del Informe de Roles (INFO_CARTERA) ──────────────────────
@@ -61,23 +59,31 @@ CARTERA_COLUMN_MAP = {
     "CRITERIOS COMERCIALES": "criterios_comerciales",
 }
 
-# ── Criterios comerciales (basado en Circular A44740) ──────────────────────────
+# ── Criterios comerciales — facilidad actualizada por el usuario ────────────────
 CRITERIOS = {
-    "fl_uso_visa_b": {
-        "nombre": "Uso Visa Business",
+    "fl_emi_dep_echeq": {
+        "nombre": "Emisión/Depósito ECheq",
         "categoria": "rapido",
         "facilidad": 5,
         "impacto": 2,
-        "definicion": "Saldo > $1 en últimos 90 días",
-        "accion": "Activar uso de tarjeta Visa Business con beneficios vigentes",
+        "definicion": "5+ operaciones de emisión/depósito en últimos 30 días",
+        "accion": "Capacitar en emisión y depósito de ECheqs",
     },
-    "fl_cdni_comercio": {
-        "nombre": "CDNI Comercio",
+    "fl_cant_desc_cheques": {
+        "nombre": "Descuento Cheques",
         "categoria": "rapido",
         "facilidad": 5,
-        "impacto": 2,
-        "definicion": "10+ operaciones en últimos 30 días",
-        "accion": "Gestionar alta y uso de CDNI para el comercio",
+        "impacto": 3,
+        "definicion": "3+ cheques descontados en últimos 30 días",
+        "accion": "Ofrecer línea de descuento de cheques/e-cheqs",
+    },
+    "fl_inv_fin": {
+        "nombre": "Inversión Financiera",
+        "categoria": "rapido",
+        "facilidad": 5,
+        "impacto": 3,
+        "definicion": "PF + Títulos + FCI > $1M MiPyME / > $10M No MiPyME (últimos 30 días)",
+        "accion": "Proponer plazo fijo o FCI según perfil y segmento",
     },
     "fl_acred_cupon": {
         "nombre": "Acreditación Cupones",
@@ -87,61 +93,21 @@ CRITERIOS = {
         "definicion": "Acreditación de cupones en últimos 30 días",
         "accion": "Migrar acreditación de cupones de tarjeta al Banco Provincia",
     },
-    "fl_recaudacion": {
-        "nombre": "Recaudación",
+    "fl_uso_visa_b": {
+        "nombre": "Uso Visa Business",
         "categoria": "rapido",
         "facilidad": 4,
-        "impacto": 3,
-        "definicion": "Convenios de recaudación activos con acreditación último mes",
-        "accion": "Ofrecer servicio de recaudación (Pago Mis Cuentas, DNIC)",
+        "impacto": 2,
+        "definicion": "Saldo > $1 en últimos 90 días",
+        "accion": "Activar uso de tarjeta Visa Business con beneficios vigentes",
     },
-    "fl_inv_fin": {
-        "nombre": "Inversión Financiera",
-        "categoria": "intermedio",
-        "facilidad": 3,
-        "impacto": 3,
-        "definicion": "PF + Títulos + FCI > $1M MiPyME / > $10M No MiPyME (últimos 30 días)",
-        "accion": "Proponer plazo fijo o FCI según perfil y segmento",
-    },
-    "fl_cant_desc_cheques": {
-        "nombre": "Descuento Cheques",
-        "categoria": "intermedio",
-        "facilidad": 3,
-        "impacto": 3,
-        "definicion": "3+ cheques descontados en últimos 30 días",
-        "accion": "Ofrecer línea de descuento de cheques/e-cheqs",
-    },
-    "fl_emi_dep_echeq": {
-        "nombre": "Emisión/Depósito ECheq",
+    "fl_cdni_comercio": {
+        "nombre": "CDNI Comercio",
         "categoria": "intermedio",
         "facilidad": 3,
         "impacto": 2,
-        "definicion": "5+ operaciones de emisión/depósito en últimos 30 días",
-        "accion": "Capacitar en emisión y depósito de ECheqs",
-    },
-    "fl_garantias_on": {
-        "nombre": "Garantías ON (Obligaciones Negociables)",
-        "categoria": "intermedio",
-        "facilidad": 3,
-        "impacto": 2,
-        "definicion": "Emisión de Obligaciones Negociables PyME",
-        "accion": "Evaluar emisión de ON PyME con área de mercado de capitales",
-    },
-    "fl_prestamo_inv": {
-        "nombre": "Préstamo Inversión",
-        "categoria": "lento",
-        "facilidad": 1,
-        "impacto": 5,
-        "definicion": "Préstamo de inversión vigente (sin bonificación/subsidio)",
-        "accion": "Evaluar línea de préstamo para inversión productiva",
-    },
-    "fl_comex": {
-        "nombre": "Comercio Exterior",
-        "categoria": "lento",
-        "facilidad": 1,
-        "impacto": 5,
-        "definicion": "Préstamos/Transferencias/Liquidación Comex último año",
-        "accion": "Relevar operatoria de comercio exterior y ofrecer productos",
+        "definicion": "10+ operaciones en últimos 30 días",
+        "accion": "Gestionar alta y uso de CDNI para el comercio",
     },
     "fl_art_y_seguros": {
         "nombre": "ART y Seguros",
@@ -151,21 +117,45 @@ CRITERIOS = {
         "definicion": "Póliza de ART o seguros vigente (no incluye ATM)",
         "accion": "Cotizar ART/seguros patrimoniales a través del banco",
     },
-    "fl_pactar": {
-        "nombre": "Pactar",
+    "fl_recaudacion": {
+        "nombre": "Recaudación",
         "categoria": "lento",
         "facilidad": 2,
         "impacto": 3,
-        "definicion": "Saldo > $500.000 en últimos 90 días",
-        "accion": "Gestionar adhesión y uso de tarjeta Pactar",
+        "definicion": "Convenios de recaudación activos con acreditación último mes",
+        "accion": "Ofrecer servicio de recaudación (Pago Mis Cuentas, DNIC)",
     },
-    "fl_procampo": {
-        "nombre": "Procampo",
+    "fl_cant_empleados": {
+        "nombre": "Cantidad Empleados",
         "categoria": "lento",
         "facilidad": 2,
-        "impacto": 3,
-        "definicion": "Saldo > $500.000 en últimos 180 días",
-        "accion": "Evaluar si aplica para productos agro (Procampo/Procampo Digital)",
+        "impacto": 4,
+        "definicion": "> 25% de nómina con mínimo 2 empleados",
+        "accion": "Migrar nómina salarial al Banco Provincia",
+    },
+    "fl_comex": {
+        "nombre": "Comercio Exterior",
+        "categoria": "lento",
+        "facilidad": 1,
+        "impacto": 5,
+        "definicion": "Préstamos/Transferencias/Liquidación Comex último año",
+        "accion": "Relevar operatoria de comercio exterior y ofrecer productos",
+    },
+    "fl_prestamo_inv": {
+        "nombre": "Préstamo Inversión",
+        "categoria": "lento",
+        "facilidad": 1,
+        "impacto": 5,
+        "definicion": "Préstamo de inversión vigente (sin bonificación/subsidio)",
+        "accion": "Evaluar línea de préstamo para inversión productiva",
+    },
+    "fl_garantias_on": {
+        "nombre": "Garantías ON (Obligaciones Negociables)",
+        "categoria": "lento",
+        "facilidad": 1,
+        "impacto": 2,
+        "definicion": "Emisión de Obligaciones Negociables PyME",
+        "accion": "Evaluar emisión de ON PyME con área de mercado de capitales",
     },
     "fl_emp_proveedora": {
         "nombre": "Empresa Proveedora",
@@ -175,13 +165,21 @@ CRITERIOS = {
         "definicion": "Acreditación de operaciones en últimos 180 días",
         "accion": "Inscribir como proveedora del Estado provincial",
     },
-    "fl_cant_empleados": {
-        "nombre": "Cantidad Empleados",
+    "fl_pactar": {
+        "nombre": "Pactar",
         "categoria": "lento",
         "facilidad": 1,
-        "impacto": 4,
-        "definicion": "> 25% de nómina con mínimo 2 empleados",
-        "accion": "Migrar nómina salarial al Banco Provincia",
+        "impacto": 3,
+        "definicion": "Saldo > $500.000 en últimos 90 días",
+        "accion": "Gestionar adhesión y uso de tarjeta Pactar (solo agro)",
+    },
+    "fl_procampo": {
+        "nombre": "Procampo",
+        "categoria": "lento",
+        "facilidad": 1,
+        "impacto": 3,
+        "definicion": "Saldo > $500.000 en últimos 180 días",
+        "accion": "Evaluar si aplica para productos agro (solo agro)",
     },
 }
 
@@ -191,7 +189,6 @@ CATEGORIAS = {
     "lento": "Lento / Estratégico",
 }
 
-# Orden de cumplimiento (categórico → numérico para comparar)
 CUMPLIMIENTO_ORDEN = {
     "No cumple": 0,
     "1 Comercial": 1, "2 Comercial": 2, "3 Comercial": 3,
@@ -205,115 +202,42 @@ NBA_PESO_IMPACTO = 0.4
 NBA_BONUS_FLAG_PERDIDO = 1.5
 NBA_BONUS_QUICK_WIN = 0.5
 NBA_BONUS_MIPYME = 0.3
-NBA_BONUS_CERCA_NIVEL = 3.0  # cliente a un criterio fácil de subir de nivel
+NBA_BONUS_CERCA_NIVEL = 3.0
 
-# Tipos de acción comercial
-TIPOS_ACCION = {
-    "ACTIVACION": "Activación comercial",
-    "RECUPERACION": "Recuperación de uso",
-    "PROFUNDIZACION": "Profundización de relación",
-    "CONTACTO_INICIAL": "Contacto inicial",
-    "ASIGNACION": "Asignación de responsable",
-    "CUMPLE_TODO": "Cumple todos los criterios",
-}
+# ── Puntos de reciprocidad para índice de desarrollo ──────────────────────────
+# SIN RECIPROCIDAD = 0, BAJA = 1, MEDIA = 2, ALTA = 3
+def puntos_reciprocidad(total_flags):
+    """Convierte cantidad de flags activos a puntos de reciprocidad."""
+    if total_flags == 0:
+        return 0
+    if total_flags == 1:
+        return 1
+    if total_flags <= 3:
+        return 2
+    return 3
 
-# ── Plantillas de mail ────────────────────────────────────────────────────────
-MAIL_TEMPLATES = {
-    "ACTIVACION": {
-        "asunto": "Oportunidad de activación - {nom_cliente}",
-        "cuerpo": """Estimado/a {nombre_rol}:
+RECIPROCIDAD_LABELS = {0: "SIN", 1: "BAJA", 2: "MEDIA", 3: "ALTA"}
 
-Te contacto respecto del cliente {nom_cliente} (CUIT: {cuit}), de tu cartera en {sucursal_rol}.
-
-Presenta una oportunidad rápida de mejora en reciprocidad.
-
-Estado actual: {cumplimiento_actual} ({total_flags_actual} criterios activos de 15)
-Criterio sugerido a activar: {criterio_nombre}
-Detalle del criterio: {criterio_definicion}
-
-Acción recomendada:
-{accion_sugerida}
-
-Criterios faltantes:
-{detalle_flags_faltantes}
-
-Saludos,
-Equipo Comercial - Banco Provincia""",
+# ── Roles Villa Ballester 5155 ─────────────────────────────────────────────────
+ROLES_VB = {
+    "IGNACIO ISLA": {
+        "email": "IgIsla@bpba.com.ar",
+        "foto": "asset/ignacio.jpeg",
     },
-    "RECUPERACION": {
-        "asunto": "Atención: caída de criterio - {nom_cliente}",
-        "cuerpo": """Estimado/a {nombre_rol}:
-
-Te informo que el cliente {nom_cliente} (CUIT: {cuit}) perdió el criterio "{criterio_nombre}".
-
-Pasó de {total_flags_anterior} a {total_flags_actual} criterios activos.
-Cumplimiento anterior: {cumplimiento_anterior} / Actual: {cumplimiento_actual}
-
-Criterios perdidos: {flags_perdidos_texto}
-
-Acción sugerida para recuperación:
-{accion_sugerida}
-
-Es importante contactar al cliente a la brevedad para evitar mayor deterioro en la reciprocidad.
-
-Saludos,
-Equipo Comercial - Banco Provincia""",
+    "ANGELA MARIANA SOGNA": {
+        "email": "amsogna@bpba.com.ar",
+        "foto": "asset/mariana.png",
     },
-    "PROFUNDIZACION": {
-        "asunto": "Oportunidad de profundización - {nom_cliente}",
-        "cuerpo": """Estimado/a {nombre_rol}:
-
-El cliente {nom_cliente} (CUIT: {cuit}) muestra buen nivel de reciprocidad.
-
-Estado actual: {cumplimiento_actual} ({total_flags_actual} criterios activos de 15)
-
-Para seguir mejorando, te sugiero trabajar el criterio: {criterio_nombre}
-Detalle: {criterio_definicion}
-
-Acción recomendada:
-{accion_sugerida}
-
-Criterios que aún puede activar:
-{detalle_flags_faltantes}
-
-Saludos,
-Equipo Comercial - Banco Provincia""",
+    "MARIA AGUSTINA BARONE": {
+        "email": "mabarone@bpba.com.ar",
+        "foto": "asset/agus.jpg",
     },
-    "CONTACTO_INICIAL": {
-        "asunto": "Nuevo cliente para gestionar - {nom_cliente}",
-        "cuerpo": """Estimado/a {nombre_rol}:
-
-Se detectó un nuevo cliente en la cartera: {nom_cliente} (CUIT: {cuit}).
-
-Tipo de empresa: {tipo_empresa}
-Estado actual: {cumplimiento_actual} ({total_flags_actual} criterios activos de 15)
-
-Te sugiero como primera acción trabajar el criterio: {criterio_nombre}
-Detalle: {criterio_definicion}
-
-Acción recomendada:
-{accion_sugerida}
-
-Es importante realizar un primer contacto para relevar necesidades y oportunidades.
-
-Saludos,
-Equipo Comercial - Banco Provincia""",
+    "PAULA MIRANDEBORDE": {
+        "email": "pmirandeborde@bpba.com.ar",
+        "foto": "asset/paula.jpg",
     },
-    "ASIGNACION": {
-        "asunto": "Cliente sin asignar requiere atención - {nom_cliente}",
-        "cuerpo": """Atención:
-
-El cliente {nom_cliente} (CUIT: {cuit}) no tiene un ejecutivo asignado en la cartera.
-
-Tipo de empresa: {tipo_empresa}
-Estado actual: {cumplimiento_actual} ({total_flags_actual} criterios activos de 15)
-
-Criterio sugerido a trabajar: {criterio_nombre}
-Acción recomendada: {accion_sugerida}
-
-Se requiere asignación de un responsable comercial para este cliente.
-
-Saludos,
-Equipo Comercial - Banco Provincia""",
+    "GUSTAVO EZEQUIEL CARBALLO": {
+        "email": "pncuadros@bpba.com.ar",
+        "foto": "asset/gustavo.png",
     },
 }

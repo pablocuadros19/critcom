@@ -5,7 +5,6 @@ import streamlit as st
 import pandas as pd
 
 from config import CRITERIOS, FLAG_COLS, CATEGORIAS
-from services.nba import generar_mail
 
 
 def render():
@@ -116,15 +115,7 @@ def render():
     else:
         st.info("No hay recomendación disponible para este cliente.")
 
-    # ── Mail sugerido ─────────────────────────────────────────────────────
-    st.divider()
-    st.subheader("Mail sugerido")
 
-    mail = generar_mail(cliente)
+# st.navigation ejecuta a nivel módulo
+render()
 
-    if mail["cuerpo"] and mail["asunto"]:
-        st.text_input("Asunto", value=mail["asunto"], key="mail_asunto_det")
-        st.text_area("Cuerpo del mail (editable, copiá desde acá)",
-                     value=mail["cuerpo"], height=300, key="mail_cuerpo_det")
-    else:
-        st.info(mail.get("cuerpo", "No hay mail sugerido para este cliente."))

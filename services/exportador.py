@@ -9,7 +9,7 @@ from datetime import datetime
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-from config import CRITERIOS, FLAG_COLS
+from config import CRITERIOS, FLAG_COLS, puntos_reciprocidad, RECIPROCIDAD_LABELS
 
 LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "asset", "critcom.png")
 FIRMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "asset", "firma_pablo.png")
@@ -125,7 +125,10 @@ def exportar_excel(df, nombre_hoja="Comparación"):
     return output.getvalue()
 
 
-def exportar_pdf(df, titulo="Reporte de Criterios Comerciales"):
+def exportar_pdf(df, titulo="Reporte de Criterios Comerciales", indices_rol=None):
+    """
+    indices_rol: dict {nombre_rol: indice_float} para sección sugerencia liberar.
+    """
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
@@ -169,21 +172,48 @@ def exportar_pdf(df, titulo="Reporte de Criterios Comerciales"):
         ubs = df["ubicacion_comercial"].dropna().unique()
         ubicacion = ubs[0] if len(ubs) > 0 else ""
 
-    def _tabla_clientes(df_sub):
+    def _calcular_puntos(df_sub):
+        """Agrega columnas puntos_recip y nivel_recip al DataFrame."""
+        df_sub = df_sub.copy()
+        if "total_flags_actual" in df_sub.columns:
+            df_sub["puntos_recip"] = df_sub["total_flags_actual"].apply(
+                lambda x: puntos_reciprocidad(int(x or 0)))
+            df_sub["nivel_recip"] = df_sub["puntos_recip"].map(RECIPROCIDAD_LABELS)
+        else:
+            df_sub["puntos_recip"] = 0
+            df_sub["nivel_recip"] = "SIN"
+        return df_sub
+
+    def _criterios_texto(row, valor):
+        """Genera texto con nombres de criterios que el cliente cumple (1) o no (0)."""
+        nombres = []
+        for f in FLAG_COLS:
+            if f in row.index and f in CRITERIOS:
+                if int(row.get(f, 0) or 0) == valor:
+                    nombres.append(CRITERIOS[f]["nombre"])
+        return ", ".join(nombres) if nombres else "-"
+
+    def _tabla_clientes(df_sub, ordenar_por_puntos=False):
         """Genera flowable tabla de clientes para un segmento del PDF."""
         cols_pdf = ["nom_cliente", "cuit", "estado", "total_flags_actual",
-                    "delta_flags", "criterio_nombre", "accion_texto", "cerca_nivel"]
+                    "delta_flags", "cumple", "no_cumple", "criterio_nombre", "cerca_nivel"]
+        # Agregar columnas calculadas
+        df_sub = df_sub.copy()
+        df_sub["cumple"] = df_sub.apply(lambda r: _criterios_texto(r, 1), axis=1)
+        df_sub["no_cumple"] = df_sub.apply(lambda r: _criterios_texto(r, 0), axis=1)
+
         cols_use = [c for c in cols_pdf if c in df_sub.columns]
         hdrs = {
             "nom_cliente": "Cliente", "cuit": "CUIT", "estado": "Estado",
             "total_flags_actual": "Crit.", "delta_flags": "Delta",
-            "criterio_nombre": "Criterio Sugerido", "accion_texto": "Acción",
-            "cerca_nivel": "QW Nivel",
+            "cumple": "Cumple", "no_cumple": "No cumple",
+            "criterio_nombre": "Sugerido", "cerca_nivel": "QW",
         }
         widths = {
-            "nom_cliente": 5.2*cm, "cuit": 2.8*cm, "estado": 2.2*cm,
-            "total_flags_actual": 1.2*cm, "delta_flags": 1.2*cm,
-            "criterio_nombre": 4*cm, "accion_texto": 5.5*cm, "cerca_nivel": 1.8*cm,
+            "nom_cliente": 4*cm, "cuit": 2.5*cm, "estado": 1.8*cm,
+            "total_flags_actual": 1*cm, "delta_flags": 1*cm,
+            "cumple": 5*cm, "no_cumple": 5*cm,
+            "criterio_nombre": 3*cm, "cerca_nivel": 1.2*cm,
         }
         col_widths = [widths.get(c, 2*cm) for c in cols_use]
         data = [[hdrs.get(c, c) for c in cols_use]]
@@ -196,7 +226,13 @@ def exportar_pdf(df, titulo="Reporte de Criterios Comerciales"):
         }
 
         row_colors = []
-        df_sorted = df_sub.sort_values("score_nba", ascending=False) if "score_nba" in df_sub.columns else df_sub
+        # Ordenar por puntos de reciprocidad (desc) o por score NBA
+        if ordenar_por_puntos and "puntos_recip" in df_sub.columns:
+            df_sorted = df_sub.sort_values("puntos_recip", ascending=False)
+        elif "score_nba" in df_sub.columns:
+            df_sorted = df_sub.sort_values("score_nba", ascending=False)
+        else:
+            df_sorted = df_sub
         for _, row in df_sorted[cols_use].iterrows():
             fila = []
             for c in cols_use:
@@ -228,6 +264,78 @@ def exportar_pdf(df, titulo="Reporte de Criterios Comerciales"):
         ]
         for i, bg in enumerate(row_colors, 1):
             estilo.append(("BACKGROUND", (0, i), (-1, i), bg))
+
+        t = Table(data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle(estilo))
+        return t
+
+    def _tabla_sugerencia_liberar(df_sub):
+        """Tabla compacta de clientes que bajan el índice del rol."""
+        cols = ["nom_cliente", "cuit", "total_flags_actual", "nivel_recip", "puntos_recip"]
+        cols_use = [c for c in cols if c in df_sub.columns]
+        hdrs = {"nom_cliente": "Cliente", "cuit": "CUIT", "total_flags_actual": "Criterios",
+                "nivel_recip": "Reciprocidad", "puntos_recip": "Puntos"}
+        widths_map = {"nom_cliente": 6*cm, "cuit": 3*cm, "total_flags_actual": 2*cm,
+                      "nivel_recip": 3*cm, "puntos_recip": 2*cm}
+        col_widths = [widths_map.get(c, 2.5*cm) for c in cols_use]
+
+        data = [[hdrs.get(c, c) for c in cols_use]]
+        df_sorted = df_sub.sort_values("puntos_recip", ascending=True)
+        for _, row in df_sorted[cols_use].iterrows():
+            fila = []
+            for c in cols_use:
+                val = row[c]
+                if pd.isna(val):
+                    val = ""
+                fila.append(Paragraph(str(val), s_normal))
+            data.append(fila)
+
+        naranja = colors.Color(0.96, 0.85, 0.65)
+        estilo = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E67E22")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 8),
+            ("FONTSIZE", (0, 1), (-1, -1), 7),
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.Color(0.85, 0.85, 0.85)),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
+        for i in range(1, len(data)):
+            estilo.append(("BACKGROUND", (0, i), (-1, i), naranja))
+
+        t = Table(data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle(estilo))
+        return t
+
+    def _tabla_desaparecidos(df_sub):
+        """Tabla de clientes que dejaron de aparecer en el listado."""
+        cols = ["nom_cliente", "cuit", "total_flags_anterior", "cumplimiento_anterior"]
+        cols_use = [c for c in cols if c in df_sub.columns]
+        hdrs = {"nom_cliente": "Cliente", "cuit": "CUIT",
+                "total_flags_anterior": "Crit. Anterior", "cumplimiento_anterior": "Cumpl. Anterior"}
+        widths_map = {"nom_cliente": 6*cm, "cuit": 3*cm,
+                      "total_flags_anterior": 3*cm, "cumplimiento_anterior": 4*cm}
+        col_widths = [widths_map.get(c, 2.5*cm) for c in cols_use]
+
+        data = [[hdrs.get(c, c) for c in cols_use]]
+        for _, row in df_sub[cols_use].iterrows():
+            fila = [Paragraph(str(row[c]) if not pd.isna(row[c]) else "", s_normal) for c in cols_use]
+            data.append(fila)
+
+        gris_naranja = colors.Color(0.96, 0.69, 0.51)
+        estilo = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F4B084")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 8),
+            ("FONTSIZE", (0, 1), (-1, -1), 7),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.Color(0.85, 0.85, 0.85)),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
 
         t = Table(data, colWidths=col_widths, repeatRows=1)
         t.setStyle(TableStyle(estilo))
@@ -318,6 +426,9 @@ def exportar_pdf(df, titulo="Reporte de Criterios Comerciales"):
         roles = [r for r in df["nombre_rol"].dropna().unique() if r and r != "SIN ASIGNAR"]
         roles_sorted = sorted(roles, key=lambda r: df[df["nombre_rol"] == r]["cuit"].count(), reverse=True)
 
+        # Agregar puntos de reciprocidad a todo el DataFrame
+        df = _calcular_puntos(df)
+
         for rol in roles_sorted:
             df_rol = df[df["nombre_rol"] == rol].copy()
             if df_rol.empty:
@@ -361,8 +472,34 @@ def exportar_pdf(df, titulo="Reporte de Criterios Comerciales"):
             elementos.append(t_rol)
             elementos.append(Spacer(1, 4*mm))
 
-            # Tabla de clientes del ejecutivo
-            elementos.append(_tabla_clientes(df_rol))
+            # Tabla de clientes del ejecutivo (ordenada por puntos desc)
+            df_rol_activos = df_rol[df_rol["estado"] != "DESAPARECIDO"]
+            if not df_rol_activos.empty:
+                elementos.append(_tabla_clientes(df_rol_activos, ordenar_por_puntos=True))
+
+            # Sección: clientes por debajo del índice
+            if "puntos_recip" in df_rol.columns and indices_rol:
+                indice_rol = indices_rol.get(rol)
+                if indice_rol is not None:
+                    df_bajan = df_rol[
+                        (df_rol["puntos_recip"] < indice_rol) &
+                        (df_rol["estado"] != "DESAPARECIDO")
+                    ]
+                    if not df_bajan.empty:
+                        elementos.append(Spacer(1, 4*mm))
+                        elementos.append(Paragraph(
+                            "Clientes por debajo de tu índice — revisá si conviene mejorarlos o liberarlos",
+                            s_seccion))
+                        elementos.append(_tabla_sugerencia_liberar(df_bajan))
+
+            # Sección: desaparecidos del ejecutivo
+            df_desap_rol = df_rol[df_rol["estado"] == "DESAPARECIDO"]
+            if not df_desap_rol.empty:
+                elementos.append(Spacer(1, 4*mm))
+                elementos.append(Paragraph(
+                    f"Clientes que dejaron de aparecer en el listado ({len(df_desap_rol)})",
+                    s_seccion))
+                elementos.append(_tabla_desaparecidos(df_desap_rol))
 
             # Pie
             elementos.append(Spacer(1, 5*mm))
@@ -371,12 +508,24 @@ def exportar_pdf(df, titulo="Reporte de Criterios Comerciales"):
                 f"CritCom — {rol} | {fecha_str}", s_pie
             ))
 
-        # Sección sin asignar
+        # Sección sin asignar (ordenada por total_flags desc)
         df_sin = df[df["nombre_rol"].fillna("SIN ASIGNAR") == "SIN ASIGNAR"].copy()
         if not df_sin.empty:
+            if "total_flags_actual" in df_sin.columns:
+                df_sin = df_sin.sort_values("total_flags_actual", ascending=False)
             elementos.append(PageBreak())
             _header_rol("SIN ASIGNAR", len(df_sin), elementos)
-            elementos.append(_tabla_clientes(df_sin))
+            elementos.append(_tabla_clientes(df_sin, ordenar_por_puntos=True))
+
+            # Desaparecidos sin asignar
+            df_desap_sin = df_sin[df_sin["estado"] == "DESAPARECIDO"]
+            if not df_desap_sin.empty:
+                elementos.append(Spacer(1, 4*mm))
+                elementos.append(Paragraph(
+                    f"Sin asignar — dejaron de aparecer ({len(df_desap_sin)})",
+                    s_seccion))
+                elementos.append(_tabla_desaparecidos(df_desap_sin))
+
             elementos.append(Spacer(1, 5*mm))
             elementos.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))
             elementos.append(Paragraph(f"CritCom — SIN ASIGNAR | {fecha_str}", s_pie))

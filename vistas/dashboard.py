@@ -375,38 +375,40 @@ if indice_data or indice_base is not None:
     es_emp = tipo_rol_sel and _es_empresas(tipo_rol_sel)
     es_nyp = tipo_rol_sel and _es_nyp(tipo_rol_sel)
 
+    def _banco_cards(dev_pilar, dev_key, tam_key, label):
+        """Genera HTML de cards banco (dev + clientes) para un pilar."""
+        _html = ""
+        bv = promedios_banco.get(dev_key)
+        tv = promedios_banco.get(tam_key)
+        try:
+            bv = float(bv) if bv is not None and bv == bv else None  # NaN check
+            tv = float(tv) if tv is not None and tv == tv else None
+        except Exception:
+            bv = tv = None
+        if bv is not None:
+            dd = dev_pilar - bv if dev_pilar else None
+            diff_str = (f'<span class="delta {"delta-up" if dd >= 0 else "delta-down"}">'
+                        f'{"+" if dd >= 0 else ""}{dd:.2f} vs banco</span>') if dd is not None else ""
+            _html += f'<div class="indice-card"><div class="label">Prom. Banco {label}</div><div class="val">{bv:.2f}</div>{diff_str}</div>'
+        if tv is not None:
+            rrow = _find_rol_row(df_info_rol, selected)
+            c_rol = rrow.get("clientes") if rrow is not None else None
+            try:
+                c_rol = int(float(c_rol)) if c_rol is not None and c_rol == c_rol else None
+            except Exception:
+                c_rol = None
+            if c_rol is not None:
+                cd = c_rol - int(tv)
+                cd_str = f'<span class="delta {"delta-up" if cd >= 0 else "delta-down"}">{"+" if cd >= 0 else ""}{cd} vs banco</span>'
+                _html += f'<div class="indice-card"><div class="label">Clientes vs banco (avg {int(tv)})</div><div class="val">{c_rol}</div>{cd_str}</div>'
+        return _html
+
     if es_emp and dev_emp is not None:
         pilar_html = f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'
-        banco_val = promedios_banco.get("dev_empresas")
-        tam_banco = promedios_banco.get("tam_empresas")
-        if banco_val is not None:
-            dev_diff = (dev_emp - banco_val) if dev_emp else None
-            diff_str = (f'<span class="delta {"delta-up" if dev_diff >= 0 else "delta-down"}">'
-                        f'{"+" if dev_diff >= 0 else ""}{dev_diff:.2f} vs banco</span>') if dev_diff is not None else ""
-            banco_html += f'<div class="indice-card"><div class="label">Prom. Banco Empresas</div><div class="val">{banco_val:.2f}</div>{diff_str}</div>'
-        if tam_banco is not None:
-            rol_row_c = _find_rol_row(df_info_rol, selected)
-            clientes_rol = int(rol_row_c.get("clientes", 0)) if rol_row_c is not None else None
-            if clientes_rol is not None:
-                c_diff = clientes_rol - int(tam_banco)
-                c_diff_str = f'<span class="delta {"delta-up" if c_diff >= 0 else "delta-down"}">{"+" if c_diff >= 0 else ""}{c_diff} vs banco</span>'
-                banco_html += f'<div class="indice-card"><div class="label">Clientes vs banco (avg {int(tam_banco)})</div><div class="val">{clientes_rol}</div>{c_diff_str}</div>'
+        banco_html = _banco_cards(dev_emp, "dev_empresas", "tam_empresas", "Empresas")
     elif es_nyp and dev_nyp is not None:
         pilar_html = f'<div class="indice-card"><div class="label">Pilar NyP (sucursal)</div><div class="val">{dev_nyp:.2f}</div></div>'
-        banco_val = promedios_banco.get("dev_nyp")
-        tam_banco = promedios_banco.get("tam_nyp")
-        if banco_val is not None:
-            dev_diff = (dev_nyp - banco_val) if dev_nyp else None
-            diff_str = (f'<span class="delta {"delta-up" if dev_diff >= 0 else "delta-down"}">'
-                        f'{"+" if dev_diff >= 0 else ""}{dev_diff:.2f} vs banco</span>') if dev_diff is not None else ""
-            banco_html += f'<div class="indice-card"><div class="label">Prom. Banco NyP</div><div class="val">{banco_val:.2f}</div>{diff_str}</div>'
-        if tam_banco is not None:
-            rol_row_c = _find_rol_row(df_info_rol, selected)
-            clientes_rol = int(rol_row_c.get("clientes", 0)) if rol_row_c is not None else None
-            if clientes_rol is not None:
-                c_diff = clientes_rol - int(tam_banco)
-                c_diff_str = f'<span class="delta {"delta-up" if c_diff >= 0 else "delta-down"}">{"+" if c_diff >= 0 else ""}{c_diff} vs banco</span>'
-                banco_html += f'<div class="indice-card"><div class="label">Clientes vs banco (avg {int(tam_banco)})</div><div class="val">{clientes_rol}</div>{c_diff_str}</div>'
+        banco_html = _banco_cards(dev_nyp, "dev_nyp", "tam_nyp", "NyP")
     else:
         if dev_emp is not None:
             pilar_html += f'<div class="indice-card"><div class="label">Pilar Empresas (sucursal)</div><div class="val">{dev_emp:.2f}</div></div>'

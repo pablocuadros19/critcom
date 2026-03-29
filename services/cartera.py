@@ -135,16 +135,23 @@ def parsear_info_rol(uploaded_file, sucursal=None):
             row_vals = df_raw.iloc[i].tolist()
             for j, cell in enumerate(row_vals):
                 cell_str = str(cell).upper()
-                nxt = pd.to_numeric(row_vals[j + 1], errors="coerce") if j + 1 < len(row_vals) else None
+                # Buscar el siguiente valor numérico (puede estar en j+1 o j+2)
+                nxt = None
+                for offset in (1, 2):
+                    if j + offset < len(row_vals):
+                        v = pd.to_numeric(row_vals[j + offset], errors="coerce")
+                        if v == v:  # no es NaN
+                            nxt = v
+                            break
                 if "TAMA" in cell_str and "EMPRESA" in cell_str and nxt is not None:
                     promedios_banco["tam_empresas"] = nxt
                 elif "DESARROLLO" in cell_str and "EMPRESA" in cell_str and nxt is not None:
                     promedios_banco["dev_empresas"] = nxt
-                elif "TAMA" in cell_str and ("NYP" in cell_str or "NyP".upper() in cell_str) and nxt is not None:
+                elif "TAMA" in cell_str and "NYP" in cell_str and nxt is not None:
                     promedios_banco["tam_nyp"] = nxt
-                elif "DESARROLLO" in cell_str and ("NYP" in cell_str or "NyP".upper() in cell_str) and nxt is not None:
+                elif "DESARROLLO" in cell_str and "NYP" in cell_str and nxt is not None:
                     promedios_banco["dev_nyp"] = nxt
-        logger.info(f"Promedios banco: {promedios_banco}")
+        print(f"[DEBUG] promedios_banco resultado: {promedios_banco}")
     except Exception as e:
         logger.warning(f"No se pudieron leer promedios banco del encabezado: {e}")
 

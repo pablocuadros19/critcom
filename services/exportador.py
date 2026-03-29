@@ -485,10 +485,20 @@ def exportar_pdf(df, titulo="Reporte de Criterios Comerciales", indices_rol=None
                 pilar_key_tam = "tam_empresas" if es_emp_pdf else ("tam_nyp" if es_nyp_pdf else None)
                 pilar_label = "Empresas" if es_emp_pdf else ("NyP" if es_nyp_pdf else "")
 
-                indice_calc = indices_rol.get(rol) if indices_rol else None
-                prom_suc_dev = (promedios_pilar or {}).get(pilar_key_dev) if pilar_key_dev else None
-                prom_bco_dev = (promedios_banco or {}).get(pilar_key_dev) if pilar_key_dev else None
-                prom_bco_tam = (promedios_banco or {}).get(pilar_key_tam) if pilar_key_tam else None
+                def _clean(v):
+                    """Convierte NaN/None a None, float válido lo devuelve."""
+                    if v is None:
+                        return None
+                    try:
+                        f = float(v)
+                        return None if f != f else f  # NaN check: NaN != NaN
+                    except Exception:
+                        return None
+
+                indice_calc = _clean(indices_rol.get(rol) if indices_rol else None)
+                prom_suc_dev = _clean((promedios_pilar or {}).get(pilar_key_dev) if pilar_key_dev else None)
+                prom_bco_dev = _clean((promedios_banco or {}).get(pilar_key_dev) if pilar_key_dev else None)
+                prom_bco_tam = _clean((promedios_banco or {}).get(pilar_key_tam) if pilar_key_tam else None)
                 clientes_rol_n = len(df_rol)
 
                 def _fmt(v, decimals=3):

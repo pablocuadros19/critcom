@@ -553,13 +553,17 @@ if st.button("Generar y enviar mi reporte PDF", type="primary", use_container_wi
     if indice_data:
         indices_pdf[selected] = indice_data["indice"]
 
-    pdf_bytes = exportar_pdf(
-        df_pdf,
-        titulo=f"Reporte {selected.title()} — {sucursal}",
-        indices_rol=indices_pdf,
-        promedios_pilar=promedios,
-        promedios_banco=promedios_banco,
-    )
+    try:
+        pdf_bytes = exportar_pdf(
+            df_pdf,
+            titulo=f"Reporte {selected.title()} — {sucursal}",
+            indices_rol=indices_pdf,
+            promedios_pilar=promedios,
+            promedios_banco=promedios_banco,
+        )
+    except Exception as e:
+        pdf_bytes = None
+        st.error(f"Error al generar PDF: {e}")
 
     if pdf_bytes:
         # Botón de descarga como fallback
